@@ -24,13 +24,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import TextIO
 
+from rich import box
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
-from rich import box
 
-from chainwatch.models import FeedResult, FeedStatus, RiskDimension, RiskReport, Severity
+from chainwatch.models import FeedStatus, RiskReport, Severity
 
 # Module-level console — replace in tests to capture output
 _console = Console(stderr=False)
@@ -88,7 +88,7 @@ def emit_error(message: str, *, json_mode: bool = False) -> None:
         payload = {"error": message, "timestamp": datetime.utcnow().isoformat() + "Z"}
         _write_text(json.dumps(payload) + "\n", output_file=None)
     else:
-        _console.print(f"[bold red]ERROR[/bold red] {message}", file=sys.stderr)
+        Console(stderr=True).print(f"[bold red]ERROR[/bold red] {message}")
 
 
 # ── JSON emitter ──────────────────────────────────────────────────────────────
@@ -132,9 +132,9 @@ def _emit_rich(report: RiskReport, *, output_file: Path | None) -> None:
     header_text.append("  →  ", style="dim")
     header_text.append(report.to_version, style="bold cyan")
     header_text.append(f"\n\n{score_bar}\n")
-    header_text.append(f"Risk Score  ", style="dim")
+    header_text.append("Risk Score  ", style="dim")
     header_text.append(f"{report.risk_score:.1f} / 100", style="bold white")
-    header_text.append(f"    Severity  ", style="dim")
+    header_text.append("    Severity  ", style="dim")
     header_text.append(report.severity.value, style=sev_style)
 
     if report.confirmed_malicious_by_feed():

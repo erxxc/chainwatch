@@ -68,8 +68,6 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "ANN"]
 ignore = [
-    "ANN101",  # Missing type annotation for self
-    "ANN102",  # Missing type annotation for cls
     "ANN401",  # Dynamically typed expressions (Any) are disallowed
 ]
 
@@ -85,8 +83,9 @@ warn_unused_configs = true
 mypy_path = "src"
 
 [[tool.mypy.overrides]]
-module = "tests.*"
+module = ["tests.*"]
 disallow_untyped_defs = false
+disallow_untyped_decorators = false
 
 # ── pytest ────────────────────────────────────────────────────────────────────
 [tool.pytest.ini_options]

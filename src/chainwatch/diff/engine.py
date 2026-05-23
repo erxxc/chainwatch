@@ -26,6 +26,7 @@ import difflib
 import json
 import logging
 from pathlib import Path
+from typing import Any
 
 from chainwatch.models import DiffSummary, FileDiff
 
@@ -87,7 +88,7 @@ def compute_diff(from_dir: Path, to_dir: Path) -> DiffSummary:
             change_type="added",
             lines_added=len(lines),
             lines_removed=0,
-            unified_diff="\n".join(f"+{l}" for l in lines),
+            unified_diff="\n".join(f"+{line}" for line in lines),
         ))
 
     total_lines = sum(
@@ -144,8 +145,12 @@ def _unified_diff(from_text: str, to_text: str, path: str) -> FileDiff:
         lineterm="",
     ))
 
-    lines_added = sum(1 for l in diff_lines if l.startswith("+") and not l.startswith("+++"))
-    lines_removed = sum(1 for l in diff_lines if l.startswith("-") and not l.startswith("---"))
+    lines_added = sum(
+        1 for line in diff_lines if line.startswith("+") and not line.startswith("+++")
+    )
+    lines_removed = sum(
+        1 for line in diff_lines if line.startswith("-") and not line.startswith("---")
+    )
 
     return FileDiff(
         path=path,
@@ -156,7 +161,7 @@ def _unified_diff(from_text: str, to_text: str, path: str) -> FileDiff:
     )
 
 
-def _extract_metadata_diff(from_dir: Path, to_dir: Path) -> dict:
+def _extract_metadata_diff(from_dir: Path, to_dir: Path) -> dict[str, Any]:
     """
     Compare package metadata files between versions.
 
@@ -165,7 +170,7 @@ def _extract_metadata_diff(from_dir: Path, to_dir: Path) -> dict:
 
     Returns a dict matching the extra kwargs of DiffSummary's metadata fields.
     """
-    result: dict = {
+    result: dict[str, Any] = {
         "new_dependencies": [],
         "removed_dependencies": [],
         "new_install_hooks": [],

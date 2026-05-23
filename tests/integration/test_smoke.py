@@ -16,7 +16,6 @@ and real fixture package tarballs.
 from __future__ import annotations
 
 import json
-import os
 
 import pytest
 from click.testing import CliRunner
@@ -110,7 +109,10 @@ class TestSmoke:
         runner = CliRunner()
         result = runner.invoke(
             cli,
-            ["diff", "npm", "lodash", "4.17.20", "4.17.21", "--threshold", "0"],
+            [
+                "diff", "npm", "lodash", "4.17.20", "4.17.21",
+                "--threshold", "0", "--no-feeds",
+            ],
         )
         # The stub produces a score > 0, so threshold=0 should trigger exit 1
         assert result.exit_code == 1

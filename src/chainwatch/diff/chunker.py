@@ -74,7 +74,10 @@ def chunk_diff(
         # If a single file's diff exceeds the per-chunk budget, truncate it
         if len(block) > budget_chars:
             max_chars = budget_chars - 200  # leave room for truncation notice
-            block = block[:max_chars] + f"\n[... diff truncated at {max_tokens_per_chunk} token budget ...]\n"
+            block = (
+                block[:max_chars]
+                + f"\n[... diff truncated at {max_tokens_per_chunk} token budget ...]\n"
+            )
             truncated = True
             log.warning(
                 "File %s diff truncated from %d to ~%d chars",
