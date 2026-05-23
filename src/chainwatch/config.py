@@ -86,6 +86,30 @@ class Settings(BaseSettings):
         description="Max retry attempts on rate-limited or transient API failures.",
     )
 
+    max_download_bytes: int = Field(
+        default=100 * 1024 * 1024,
+        ge=1 * 1024 * 1024,
+        description="Maximum compressed archive bytes downloaded per package version.",
+    )
+
+    max_extracted_bytes: int = Field(
+        default=500 * 1024 * 1024,
+        ge=1 * 1024 * 1024,
+        description="Maximum total extracted file bytes per package version.",
+    )
+
+    max_archive_files: int = Field(
+        default=25_000,
+        ge=1,
+        description="Maximum number of files allowed in a package archive.",
+    )
+
+    max_archive_file_bytes: int = Field(
+        default=50 * 1024 * 1024,
+        ge=1,
+        description="Maximum extracted size of any single archive member.",
+    )
+
     # ── Registry URLs ─────────────────────────────────────────────────────────
 
     npm_registry: str = Field(
