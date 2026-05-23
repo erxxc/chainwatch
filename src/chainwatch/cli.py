@@ -35,7 +35,7 @@ from rich.console import Console
 from rich.logging import RichHandler
 
 from chainwatch.config import get_settings
-from chainwatch.models import Ecosystem
+from chainwatch.models import Ecosystem, RiskReport
 
 _err_console = Console(stderr=True)
 
@@ -72,7 +72,7 @@ def _configure_logging(verbose: bool) -> None:
               help="Emit machine-readable ndjson instead of Rich terminal output.")
 @click.option("--verbose", "-v", is_flag=True, default=False,
               help="Enable debug logging.")
-@click.option("--output", "-o", type=click.Path(path_type=Path), default=None,
+@click.option("--output", "-o", type=click.Path(path_type=Path), default=None,  # type: ignore[type-var]
               help="Write report to FILE instead of stdout.")
 @click.pass_context
 def cli(ctx: click.Context, json_mode: bool, verbose: bool, output: Path | None) -> None:
@@ -163,7 +163,7 @@ def diff(
 
 
 @cli.command()
-@click.argument("lockfile", type=click.Path(exists=True, path_type=Path))
+@click.argument("lockfile", type=click.Path(exists=True, path_type=Path))  # type: ignore[type-var]
 @click.pass_context
 def scan(ctx: click.Context, lockfile: Path) -> None:
     """
@@ -185,7 +185,7 @@ def scan(ctx: click.Context, lockfile: Path) -> None:
 
 
 @cli.command()
-@click.argument("report_file", type=click.Path(exists=True, path_type=Path))
+@click.argument("report_file", type=click.Path(exists=True, path_type=Path))  # type: ignore[type-var]
 @click.pass_context
 def report(ctx: click.Context, report_file: Path) -> None:
     """
@@ -210,7 +210,7 @@ async def _run_diff_pipeline(
     from_version: str,
     to_version: str,
     no_feeds: bool,
-) -> "RiskReport":
+) -> RiskReport:
     """
     Execute the full chainwatch pipeline for a single package diff.
 
@@ -252,12 +252,19 @@ async def _run_diff_pipeline(
     ) as client:
 
         # ── Stage 1: Fetch ────────────────────────────────────────────────────
-        log.info("Stage 1/4 — fetching %s/%s %s → %s", ecosystem.value, package, from_version, to_version)
+        log.info(
+            "Stage 1/4 — fetching %s/%s %s → %s",
+            ecosystem.value, package, from_version, to_version,
+        )
 
         if ecosystem == Ecosystem.npm:
-            fetch_result = await npm.fetch_package_versions(client, package, from_version, to_version)
+            fetch_result = await npm.fetch_package_versions(
+                client, package, from_version, to_version,
+            )
         else:
-            fetch_result = await pypi.fetch_package_versions(client, package, from_version, to_version)
+            fetch_result = await pypi.fetch_package_versions(
+                client, package, from_version, to_version,
+            )
 
         with fetch_result:  # ensures temp dirs are cleaned up
             # ── Stage 2: Diff ─────────────────────────────────────────────────
@@ -272,10 +279,11 @@ async def _run_diff_pipeline(
             )
 
             # Build stub feed results if feeds are disabled
+            no_feeds_msg = "Feeds disabled (--no-feeds)"
             stub_feed_results: list[FeedResult] = [
-                FeedResult(source="osv",       status=FeedStatus.no_data, details="Feeds disabled (--no-feeds)"),
-                FeedResult(source="rekor",     status=FeedStatus.no_data, details="Feeds disabled (--no-feeds)"),
-                FeedResult(source="scorecard", status=FeedStatus.no_data, details="Feeds disabled (--no-feeds)"),
+                FeedResult(source="osv", status=FeedStatus.no_data, details=no_feeds_msg),
+                FeedResult(source="rekor", status=FeedStatus.no_data, details=no_feeds_msg),
+                FeedResult(source="scorecard", status=FeedStatus.no_data, details=no_feeds_msg),
             ]
 
             llm_task = asyncio.create_task(

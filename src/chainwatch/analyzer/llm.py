@@ -14,34 +14,31 @@ Prompt design rationale:
   The system prompt establishes the LLM as a security analyst reviewing a
   package diff, not as a general assistant.  The response schema is embedded
   in the prompt so the LLM produces structured JSON that pydantic can validate.
-  We use JSON-mode output to eliminate markdown wrapping in responses.
 
   The schema shown to the LLM is a simplified subset of ``RiskDimension`` —
   just the fields we need back.  Pydantic validation happens after parsing.
 
-Stub status: STUB
-  ``analyze_diff()`` returns a fixture RiskReport built from plausible-looking
-  scores.  The real implementation sends the chunks to the Anthropic API and
-  parses the structured JSON response.
+Stub mode:
+  When ``ANTHROPIC_API_KEY`` starts with ``sk-ant-test`` (set in CI/tests),
+  the module returns fixture scores without calling the API.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Any
 
 import anthropic
+from anthropic.types import TextBlock
 
 from chainwatch.config import get_settings
 from chainwatch.models import (
     DIMENSIONS,
     DiffSummary,
     Ecosystem,
-    FeedResult,
     RiskDimension,
-    RiskReport,
-    Severity,
 )
 
 log = logging.getLogger(__name__)
@@ -151,48 +148,39 @@ async def analyze_diff(
         ecosystem.value, package, from_version, to_version, len(diff_chunks),
     )
 
-    # ── STUB ──────────────────────────────────────────────────────────────────
-    # Returns plausible-looking fixture dimensions.
-    # Replace with real Anthropic API calls below.
-    log.warning("LLM analyzer is STUBBED — returning fixture dimensions")
+    # Stub mode for testing — return fixture data without calling the API
+    api_key = settings.anthropic_api_key.get_secret_value()
+    if api_key.startswith("sk-ant-test"):
+        log.warning("LLM analyzer is in STUB mode — returning fixture dimensions")
+        stub_summary = _build_stub_summary(package, from_version, to_version)
+        return _build_stub_dimensions(), stub_summary, settings.model
 
-    stub_dimensions = _build_stub_dimensions()
-    stub_summary = (
-        f"[STUB] Analysis of {package} {from_version}→{to_version}. "
-        "The diff shows a minor change to index.js with no suspicious patterns. "
-        "All risk dimensions score low. This is fixture data — replace with "
-        "real LLM output by implementing the Anthropic API call in analyzer/llm.py."
-    )
+    # Real implementation
+    client = anthropic.AsyncAnthropic(api_key=api_key)
 
-    return stub_dimensions, stub_summary, settings.model
-    # ── END STUB ──────────────────────────────────────────────────────────────
+    all_chunk_results: list[list[dict[str, Any]]] = []
+    last_summary = ""
 
-    # ── REAL IMPLEMENTATION (uncomment when ready) ────────────────────────────
-    # client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key.get_secret_value())
-    #
-    # all_chunk_results: list[list[dict[str, Any]]] = []
-    # last_summary = ""
-    #
-    # for i, chunk in enumerate(diff_chunks):
-    #     log.debug("Sending chunk %d/%d to LLM", i + 1, len(diff_chunks))
-    #     user_prompt = USER_PROMPT_TEMPLATE.format(
-    #         ecosystem=ecosystem.value,
-    #         package=package,
-    #         from_version=from_version,
-    #         to_version=to_version,
-    #         diff_content=chunk,
-    #     )
-    #     raw = await _call_with_retry(client, user_prompt, settings)
-    #     parsed = _parse_llm_response(raw)
-    #     all_chunk_results.append(parsed["dimensions"])
-    #     last_summary = parsed.get("summary", "")
-    #
-    # aggregated = _aggregate_chunk_scores(all_chunk_results)
-    # dimensions = _build_dimensions(aggregated)
-    # return dimensions, last_summary, settings.model
+    for i, chunk in enumerate(diff_chunks):
+        log.debug("Sending chunk %d/%d to LLM", i + 1, len(diff_chunks))
+        user_prompt = USER_PROMPT_TEMPLATE.format(
+            ecosystem=ecosystem.value,
+            package=package,
+            from_version=from_version,
+            to_version=to_version,
+            diff_content=chunk,
+        )
+        raw = await _call_with_retry(client, user_prompt, settings)
+        parsed = _parse_llm_response(raw)
+        all_chunk_results.append(parsed["dimensions"])
+        last_summary = parsed.get("summary", "")
+
+    aggregated = _aggregate_chunk_scores(all_chunk_results)
+    dimensions = _build_dimensions(aggregated)
+    return dimensions, last_summary, settings.model
 
 
-# ── LLM API helpers (real implementation, not yet active) ─────────────────────
+# ── LLM API helpers ───────────────────────────────────────────────────────────
 
 
 async def _call_with_retry(
@@ -205,8 +193,6 @@ async def _call_with_retry(
 
     Returns the raw text content of the response.
     """
-    import asyncio
-
     for attempt in range(settings.max_retries + 1):
         try:
             message = await client.messages.create(
@@ -215,26 +201,45 @@ async def _call_with_retry(
                 system=SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": user_prompt}],
             )
-            return message.content[0].text  # type: ignore[return-value]
+            # Extract text from the first TextBlock
+            for block in message.content:
+                if isinstance(block, TextBlock):
+                    return block.text
+            raise ValueError("LLM response contained no text blocks")
         except anthropic.RateLimitError:
             if attempt == settings.max_retries:
                 raise
             wait = 2 ** attempt
-            log.warning("Rate limited — retrying in %ds (attempt %d)", wait, attempt + 1)
+            log.warning(
+                "Rate limited — retrying in %ds (attempt %d)",
+                wait, attempt + 1,
+            )
             await asyncio.sleep(wait)
     raise RuntimeError("Unreachable")
 
 
 def _parse_llm_response(raw: str) -> dict[str, Any]:
     """Parse and lightly validate the LLM JSON response."""
+    # Strip any markdown fencing the model might have added
+    text = raw.strip()
+    if text.startswith("```"):
+        # Remove opening fence
+        first_newline = text.index("\n")
+        text = text[first_newline + 1:]
+        # Remove closing fence
+        if text.endswith("```"):
+            text = text[:-3].strip()
+
     try:
-        parsed = json.loads(raw)
+        parsed: dict[str, Any] = json.loads(text)
     except json.JSONDecodeError as exc:
         log.error("LLM returned non-JSON response: %s", raw[:200])
         raise ValueError(f"LLM did not return valid JSON: {exc}") from exc
 
     if "dimensions" not in parsed:
-        raise ValueError(f"LLM response missing 'dimensions' key: {list(parsed.keys())}")
+        raise ValueError(
+            f"LLM response missing 'dimensions' key: {list(parsed.keys())}"
+        )
 
     return parsed
 
@@ -269,15 +274,19 @@ def _build_dimensions(
     Uses the canonical DIMENSIONS list from models.py to fill in labels and
     weights — the LLM only supplies names, scores, and reasoning.
     """
-    dim_meta = {d["name"]: d for d in DIMENSIONS}
     result = []
     for dim_def in DIMENSIONS:
         name = dim_def["name"]
-        llm_data = aggregated.get(name, {"score": 0.0, "reasoning": "Not assessed."})
+        llm_data = aggregated.get(
+            name, {"score": 0.0, "reasoning": "Not assessed."}
+        )
+        score = float(llm_data.get("score", 0.0))
+        # Clamp to valid range
+        score = max(0.0, min(10.0, score))
         result.append(RiskDimension(
             name=name,
             label=dim_def["label"],
-            score=float(llm_data.get("score", 0.0)),
+            score=score,
             weight=dim_def["weight"],
             reasoning=llm_data.get("reasoning", "No reasoning provided."),
         ))
@@ -286,12 +295,12 @@ def _build_dimensions(
 
 def _build_stub_dimensions() -> list[RiskDimension]:
     """Build fixture RiskDimension objects for the walking skeleton."""
-    stub_scores = {
-        "network_calls":     (1.0, "No new network calls detected in the stub diff."),
-        "obfuscation":       (0.5, "No obfuscation patterns detected."),
-        "install_hooks":     (0.0, "No install hook changes in the stub diff."),
-        "env_conditional":   (0.0, "No env-conditional logic detected."),
-        "dependency_changes":(0.5, "No dependency changes in the stub diff."),
+    stub_scores: dict[str, tuple[float, str]] = {
+        "network_calls": (1.0, "No new network calls detected in the stub diff."),
+        "obfuscation": (0.5, "No obfuscation patterns detected."),
+        "install_hooks": (0.0, "No install hook changes in the stub diff."),
+        "env_conditional": (0.0, "No env-conditional logic detected."),
+        "dependency_changes": (0.5, "No dependency changes in the stub diff."),
     }
     result = []
     for dim_def in DIMENSIONS:
@@ -304,3 +313,12 @@ def _build_stub_dimensions() -> list[RiskDimension]:
             reasoning=reasoning,
         ))
     return result
+
+
+def _build_stub_summary(package: str, from_version: str, to_version: str) -> str:
+    """Build a stub summary string for test mode."""
+    return (
+        f"[STUB] Analysis of {package} {from_version}→{to_version}. "
+        "The diff shows a minor change with no suspicious patterns. "
+        "All risk dimensions score low. This is fixture data."
+    )

@@ -7,14 +7,12 @@ Uses fixture directories — no network calls, no API calls.
 from __future__ import annotations
 
 import json
-import tempfile
 from pathlib import Path
 
 import pytest
 
+from chainwatch.diff.chunker import chunk_diff
 from chainwatch.diff.engine import compute_diff
-from chainwatch.diff.chunker import chunk_diff, CHARS_PER_TOKEN
-
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -24,7 +22,8 @@ def identical_dirs(tmp_path: Path):
     """Two directories with identical content — diff should be empty."""
     a = tmp_path / "a"
     b = tmp_path / "b"
-    a.mkdir(); b.mkdir()
+    a.mkdir()
+    b.mkdir()
     (a / "index.js").write_text("module.exports = 1;\n")
     (b / "index.js").write_text("module.exports = 1;\n")
     return a, b
@@ -35,7 +34,8 @@ def simple_change(tmp_path: Path):
     """Two directories with one modified file."""
     a = tmp_path / "a"
     b = tmp_path / "b"
-    a.mkdir(); b.mkdir()
+    a.mkdir()
+    b.mkdir()
     (a / "index.js").write_text("module.exports = function() { return 'hello'; };\n")
     (b / "index.js").write_text("module.exports = function() { return 'hello world'; };\n")
     return a, b
@@ -46,7 +46,8 @@ def added_and_removed(tmp_path: Path):
     """from_dir has extra.js, to_dir has new.js instead."""
     a = tmp_path / "a"
     b = tmp_path / "b"
-    a.mkdir(); b.mkdir()
+    a.mkdir()
+    b.mkdir()
     (a / "index.js").write_text("// shared\n")
     (a / "extra.js").write_text("// will be removed\n")
     (b / "index.js").write_text("// shared\n")
@@ -59,7 +60,8 @@ def with_package_json(tmp_path: Path):
     """Directories with package.json that has a new dependency and postinstall hook."""
     a = tmp_path / "a"
     b = tmp_path / "b"
-    a.mkdir(); b.mkdir()
+    a.mkdir()
+    b.mkdir()
 
     (a / "index.js").write_text("module.exports = 1;\n")
     (a / "package.json").write_text(json.dumps({
@@ -84,7 +86,8 @@ def non_source_files(tmp_path: Path):
     """to_dir has image and binary files — should be ignored by the engine."""
     a = tmp_path / "a"
     b = tmp_path / "b"
-    a.mkdir(); b.mkdir()
+    a.mkdir()
+    b.mkdir()
     (a / "index.js").write_text("// src\n")
     (b / "index.js").write_text("// src changed\n")
     (b / "image.png").write_bytes(b"\x89PNG\r\n")
@@ -164,7 +167,8 @@ class TestChunker:
         """A file whose diff exceeds the token budget should be truncated."""
         a = tmp_path / "a"
         b = tmp_path / "b"
-        a.mkdir(); b.mkdir()
+        a.mkdir()
+        b.mkdir()
         # Generate a large diff: 10000 lines changed
         (a / "big.js").write_text("\n".join(f"var x{i} = {i};" for i in range(10_000)))
         (b / "big.js").write_text("\n".join(f"var x{i} = {i + 1};" for i in range(10_000)))

@@ -20,7 +20,6 @@ from chainwatch.models import (
     Severity,
 )
 
-
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
@@ -93,7 +92,7 @@ class TestRiskDimension:
         assert dim.weighted_contribution == pytest.approx(12.5)
 
     def test_score_bounds_enforced(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             RiskDimension(
                 name="network_calls",
                 label="Network calls",
@@ -207,14 +206,20 @@ class TestRiskReport:
 class TestAggregator:
     def test_base_score_all_zeros_is_zero(self):
         from chainwatch.analyzer.aggregator import _compute_llm_base_score
-        dims = _make_dimensions({k: 0.0 for k in
-            ["network_calls", "obfuscation", "install_hooks", "env_conditional", "dependency_changes"]})
+        all_dims = [
+            "network_calls", "obfuscation", "install_hooks",
+            "env_conditional", "dependency_changes",
+        ]
+        dims = _make_dimensions({k: 0.0 for k in all_dims})
         assert _compute_llm_base_score(dims) == pytest.approx(0.0)
 
     def test_base_score_all_tens_is_hundred(self):
         from chainwatch.analyzer.aggregator import _compute_llm_base_score
-        dims = _make_dimensions({k: 10.0 for k in
-            ["network_calls", "obfuscation", "install_hooks", "env_conditional", "dependency_changes"]})
+        all_dims = [
+            "network_calls", "obfuscation", "install_hooks",
+            "env_conditional", "dependency_changes",
+        ]
+        dims = _make_dimensions({k: 10.0 for k in all_dims})
         assert _compute_llm_base_score(dims) == pytest.approx(100.0)
 
     def test_feed_malicious_applies_floor(self):

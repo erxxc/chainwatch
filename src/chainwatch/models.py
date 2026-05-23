@@ -16,8 +16,8 @@ can detect stale reports.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from enum import Enum
+from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -28,14 +28,14 @@ SCHEMA_VERSION = "0.1.0"
 # ── Enumerations ──────────────────────────────────────────────────────────────
 
 
-class Ecosystem(str, Enum):
+class Ecosystem(StrEnum):
     """Package registry ecosystems supported by chainwatch."""
 
     npm = "npm"
     pypi = "pypi"
 
 
-class Severity(str, Enum):
+class Severity(StrEnum):
     """
     Composite severity bucket derived from the 0-100 risk score.
 
@@ -55,7 +55,7 @@ class Severity(str, Enum):
     CRITICAL = "CRITICAL"
 
 
-class FeedStatus(str, Enum):
+class FeedStatus(StrEnum):
     """
     Normalised status returned by each threat feed client.
 
@@ -278,7 +278,7 @@ class RiskReport(BaseModel):
 
     # ── Provenance ───────────────────────────────────────────────────────────
     timestamp: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
+        default_factory=lambda: datetime.now(UTC),
         description="UTC timestamp of when this report was generated",
     )
     from_version_sha256: str | None = Field(
@@ -306,7 +306,7 @@ class RiskReport(BaseModel):
         return v
 
     @model_validator(mode="after")
-    def severity_must_match_score(self) -> "RiskReport":
+    def severity_must_match_score(self) -> RiskReport:
         expected = Severity.LOW
         if self.risk_score >= 80:
             expected = Severity.CRITICAL

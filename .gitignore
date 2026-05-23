@@ -1,6 +1,7 @@
 # Python
 __pycache__/
 *.py[cod]
+*$py.class
 *.so
 *.egg
 *.egg-info/
@@ -8,8 +9,12 @@ dist/
 build/
 .eggs/
 
-# uv
+# Virtual environments
 .venv/
+venv/
+ENV/
+
+# uv
 uv.lock          # committed — but listed here so editors don't flag it
 .python-version  # committed
 
@@ -26,6 +31,8 @@ htmlcov/
 
 # Temp directories created during diff analysis
 /tmp/chainwatch-*
+chainwatch-from-*
+chainwatch-to-*
 
 # OS
 .DS_Store
@@ -35,6 +42,8 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+*.swo
+*~
 
 # Dataset tarballs — preserved by hash; actual .tgz files not committed
 dataset/malicious/**/*.tgz

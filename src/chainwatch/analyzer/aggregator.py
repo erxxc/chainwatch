@@ -32,7 +32,7 @@ Feed contribution:
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from chainwatch.models import (
     DiffSummary,
@@ -41,7 +41,6 @@ from chainwatch.models import (
     FeedStatus,
     RiskDimension,
     RiskReport,
-    Severity,
 )
 
 log = logging.getLogger(__name__)
@@ -107,7 +106,7 @@ def build_report(
         diff_summary=diff_summary,
         llm_model=llm_model,
         llm_summary=llm_summary,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         from_version_sha256=from_sha256,
         to_version_sha256=to_sha256,
     )
@@ -145,10 +144,11 @@ def _apply_feed_modifiers(base_score: float, feed_results: list[FeedResult]) -> 
     modifiers_applied: list[str] = []
 
     for feed in feed_results:
-        if feed.status == FeedStatus.malicious:
-            if score < _MALICIOUS_FEED_FLOOR_SCORE:
-                score = _MALICIOUS_FEED_FLOOR_SCORE
-                modifiers_applied.append(f"feed:{feed.source}:malicious floor={_MALICIOUS_FEED_FLOOR_SCORE}")
+        if feed.status == FeedStatus.malicious and score < _MALICIOUS_FEED_FLOOR_SCORE:
+            score = _MALICIOUS_FEED_FLOOR_SCORE
+            modifiers_applied.append(
+                f"feed:{feed.source}:malicious floor={_MALICIOUS_FEED_FLOOR_SCORE}"
+            )
 
         if feed.source == "rekor" and feed.signing_identity_changed:
             score += _REKOR_IDENTITY_CHANGE_BONUS
