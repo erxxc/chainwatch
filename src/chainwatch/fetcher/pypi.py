@@ -30,6 +30,11 @@ from typing import Any
 import httpx
 
 from chainwatch.config import get_settings
+from chainwatch.fetcher.archive import (
+    download_with_limit,
+    validate_tar_members,
+    validate_zip_infos,
+)
 from chainwatch.fetcher.npm import FetchResult  # reuse shared FetchResult type
 
 log = logging.getLogger(__name__)
@@ -188,19 +193,7 @@ def _pick_download(
 
 async def _download_archive(client: httpx.AsyncClient, url: str) -> bytes:
     """Download an archive with retry on rate limit."""
-    settings = get_settings()
-
-    for attempt in range(settings.max_retries + 1):
-        resp = await client.get(url)
-        if resp.status_code == 429 and attempt < settings.max_retries:
-            wait = 2 ** attempt
-            log.warning("Rate limited downloading archive — retrying in %ds", wait)
-            await asyncio.sleep(wait)
-            continue
-        resp.raise_for_status()
-        return resp.content
-
-    raise RuntimeError(f"Exhausted retries downloading {url}")
+    return await download_with_limit(client, url, label="PyPI archive")
 
 
 def _extract_archive(data: bytes, dest: Path, filename: str) -> Path:
@@ -218,7 +211,7 @@ def _extract_archive(data: bytes, dest: Path, filename: str) -> Path:
         # Try tar first, fall back to zip
         try:
             return _extract_tarball(data, dest)
-        except (tarfile.TarError, Exception):
+        except tarfile.TarError:
             return _extract_zip(data, dest)
 
 
@@ -226,12 +219,7 @@ def _extract_tarball(data: bytes, dest: Path) -> Path:
     """Extract a .tar.gz sdist archive."""
     buf = io.BytesIO(data)
     with tarfile.open(fileobj=buf, mode="r:gz") as tar:
-        members = []
-        for member in tar.getmembers():
-            if member.name.startswith("/") or ".." in member.name:
-                log.warning("Skipping unsafe tar member: %s", member.name)
-                continue
-            members.append(member)
+        members = validate_tar_members(tar.getmembers(), label="PyPI sdist")
         tar.extractall(path=dest, members=members, filter="data")
 
     # sdist archives usually have a single top-level directory
@@ -245,10 +233,7 @@ def _extract_zip(data: bytes, dest: Path) -> Path:
     """Extract a .whl (zip) archive."""
     buf = io.BytesIO(data)
     with zipfile.ZipFile(buf) as zf:
-        for info in zf.infolist():
-            if info.filename.startswith("/") or ".." in info.filename:
-                log.warning("Skipping unsafe zip member: %s", info.filename)
-                continue
+        for info in validate_zip_infos(zf.infolist(), label="PyPI wheel"):
             zf.extract(info, path=dest)
 
     # Wheels may have a dist-info directory; find the source directory

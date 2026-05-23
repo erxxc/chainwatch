@@ -7,6 +7,8 @@ using in-memory fixtures — no real registry calls.
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import io
 import tarfile
 import zipfile
@@ -15,10 +17,13 @@ from pathlib import Path
 import pytest
 
 from chainwatch.config import get_settings
+from chainwatch.fetcher.archive import validate_tar_members, validate_zip_infos
 from chainwatch.fetcher.npm import (
     FetchResult,
     _extract_npm_tarball,
     _get_version_info,
+    _matches_sri,
+    _verify_npm_integrity,
 )
 from chainwatch.fetcher.pypi import (
     _extract_tarball,
@@ -114,6 +119,53 @@ class TestExtractNpmTarball:
         # The safe file should exist, the traversal file should not
         assert (result / "index.js").exists()
         assert not (tmp_path / "etc" / "passwd").exists()
+
+    def test_rejects_oversized_tar_member(self, monkeypatch):
+        monkeypatch.setenv("CHAINWATCH_MAX_ARCHIVE_FILE_BYTES", "1048576")
+        get_settings.cache_clear()
+        info = tarfile.TarInfo(name="package/big.js")
+        info.size = 1048577
+        with pytest.raises(ValueError, match="too large"):
+            validate_tar_members([info], label="test tar")
+
+    def test_skips_tar_symlink(self, tmp_path):
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+            link = tarfile.TarInfo(name="package/link.js")
+            link.type = tarfile.SYMTYPE
+            link.linkname = "/etc/passwd"
+            tar.addfile(link)
+            safe = tarfile.TarInfo(name="package/index.js")
+            content = b"safe"
+            safe.size = len(content)
+            tar.addfile(safe, io.BytesIO(content))
+
+        result = _extract_npm_tarball(buf.getvalue(), tmp_path)
+        assert (result / "index.js").exists()
+        assert not (result / "link.js").exists()
+
+
+class TestNpmIntegrity:
+    def test_matches_sri_sha512(self):
+        data = b"package tarball"
+        digest = base64.b64encode(hashlib.sha512(data).digest()).decode()
+        assert _matches_sri(data, f"sha512-{digest}")
+
+    def test_verify_integrity_mismatch_raises(self):
+        digest = base64.b64encode(hashlib.sha512(b"expected").digest()).decode()
+        version_info = {"dist": {"integrity": f"sha512-{digest}"}}
+        with pytest.raises(ValueError, match="Integrity mismatch"):
+            _verify_npm_integrity(b"actual", version_info, "pkg", "1.0.0")
+
+    def test_verify_shasum_fallback(self):
+        data = b"package tarball"
+        version_info = {"dist": {"shasum": hashlib.sha1(data).hexdigest()}}
+        _verify_npm_integrity(data, version_info, "pkg", "1.0.0")
+
+    def test_verify_shasum_mismatch_raises(self):
+        version_info = {"dist": {"shasum": "0" * 40}}
+        with pytest.raises(ValueError, match="SHA1 mismatch"):
+            _verify_npm_integrity(b"package tarball", version_info, "pkg", "1.0.0")
 
 
 # ── npm: FetchResult context manager ─────────────────────────────────────────
@@ -236,6 +288,14 @@ class TestExtractZip:
         result = _extract_zip(data, tmp_path)
         assert result == tmp_path
         assert (tmp_path / "main.py").exists()
+
+    def test_rejects_oversized_zip_member(self, monkeypatch):
+        monkeypatch.setenv("CHAINWATCH_MAX_ARCHIVE_FILE_BYTES", "1048576")
+        get_settings.cache_clear()
+        info = zipfile.ZipInfo("big.py")
+        info.file_size = 1048577
+        with pytest.raises(ValueError, match="too large"):
+            validate_zip_infos([info], label="test zip")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

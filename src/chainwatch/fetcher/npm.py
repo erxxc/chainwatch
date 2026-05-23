@@ -8,7 +8,8 @@ to temporary directories for the diff engine.
 npm registry API:
   GET https://registry.npmjs.org/{package}
   Returns JSON with a ``versions`` object keyed by semver string.
-  Each version entry has a ``dist.tarball`` URL and ``dist.shasum`` (SHA1).
+  Each version entry has a ``dist.tarball`` URL, ``dist.integrity`` (SRI),
+  and/or ``dist.shasum`` (SHA1).
 
   Tarballs are gzip-compressed tar files.  The contents are always nested
   under a ``package/`` directory inside the tar.
@@ -21,6 +22,8 @@ Architecture (async):
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import hashlib
 import io
 import logging
@@ -33,6 +36,7 @@ from typing import Any
 import httpx
 
 from chainwatch.config import get_settings
+from chainwatch.fetcher.archive import download_with_limit, validate_tar_members
 
 log = logging.getLogger(__name__)
 
@@ -78,7 +82,7 @@ async def fetch_package_versions(
 
     1. GET registry.npmjs.org/{package} to resolve tarball URLs
     2. Download both tarballs concurrently
-    3. Verify SHA256 of each tarball
+    3. Verify registry-provided integrity for each tarball
     4. Extract to temp directories
 
     Args:
@@ -112,6 +116,8 @@ async def fetch_package_versions(
 
     from_sha256 = hashlib.sha256(from_bytes).hexdigest()
     to_sha256 = hashlib.sha256(to_bytes).hexdigest()
+    _verify_npm_integrity(from_bytes, from_info, package, from_version)
+    _verify_npm_integrity(to_bytes, to_info, package, to_version)
 
     log.debug(
         "Downloaded: from=%d bytes (sha256:%s…), to=%d bytes (sha256:%s…)",
@@ -187,19 +193,51 @@ def _get_version_info(
 
 async def _download_tarball(client: httpx.AsyncClient, url: str) -> bytes:
     """Download a tarball with retry on rate limit."""
-    settings = get_settings()
+    return await download_with_limit(client, url, label="npm tarball")
 
-    for attempt in range(settings.max_retries + 1):
-        resp = await client.get(url)
-        if resp.status_code == 429 and attempt < settings.max_retries:
-            wait = 2 ** attempt
-            log.warning("Rate limited downloading tarball — retrying in %ds", wait)
-            await asyncio.sleep(wait)
+
+def _verify_npm_integrity(
+    data: bytes,
+    version_info: dict[str, Any],
+    package: str,
+    version: str,
+) -> None:
+    """Verify an npm tarball against dist.integrity or dist.shasum."""
+    dist = version_info.get("dist") or {}
+    integrity = dist.get("integrity")
+    if isinstance(integrity, str) and integrity:
+        if _matches_sri(data, integrity):
+            return
+        raise ValueError(f"Integrity mismatch for {package}@{version}")
+
+    shasum = dist.get("shasum")
+    if isinstance(shasum, str) and shasum:
+        actual = hashlib.sha1(data).hexdigest()
+        if actual != shasum:
+            raise ValueError(
+                f"SHA1 mismatch for {package}@{version}: expected {shasum}, got {actual}"
+            )
+
+
+def _matches_sri(data: bytes, integrity: str) -> bool:
+    """Return True if data matches any digest in an npm SRI string."""
+    algorithms = {
+        "sha512": hashlib.sha512,
+        "sha384": hashlib.sha384,
+        "sha256": hashlib.sha256,
+    }
+    for token in integrity.split():
+        algorithm, sep, digest_b64 = token.partition("-")
+        if not sep or algorithm not in algorithms:
             continue
-        resp.raise_for_status()
-        return resp.content
-
-    raise RuntimeError(f"Exhausted retries downloading {url}")
+        try:
+            expected = base64.b64decode(digest_b64, validate=True)
+        except (ValueError, binascii.Error):
+            continue
+        actual = algorithms[algorithm](data).digest()
+        if actual == expected:
+            return True
+    return False
 
 
 def _extract_npm_tarball(data: bytes, dest: Path) -> Path:
@@ -212,14 +250,7 @@ def _extract_npm_tarball(data: bytes, dest: Path) -> Path:
     """
     buf = io.BytesIO(data)
     with tarfile.open(fileobj=buf, mode="r:gz") as tar:
-        # Security: filter out absolute paths and path traversal
-        members = []
-        for member in tar.getmembers():
-            # Skip absolute paths and path traversal
-            if member.name.startswith("/") or ".." in member.name:
-                log.warning("Skipping unsafe tar member: %s", member.name)
-                continue
-            members.append(member)
+        members = validate_tar_members(tar.getmembers(), label="npm tarball")
         tar.extractall(path=dest, members=members, filter="data")
 
     # npm tarballs always contain a top-level "package/" directory

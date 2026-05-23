@@ -28,6 +28,7 @@ htmlcov/
 
 # Type checking
 .mypy_cache/
+.ruff_cache/
 
 # Temp directories created during diff analysis
 /tmp/chainwatch-*
