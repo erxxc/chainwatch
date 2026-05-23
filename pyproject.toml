@@ -1,0 +1,100 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "chainwatch"
+version = "0.1.0"
+description = "LLM-assisted supply chain diff analyzer for detecting malicious package updates"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+authors = [{ name = "chainwatch contributors" }]
+keywords = ["security", "supply-chain", "npm", "pypi", "llm", "static-analysis"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+]
+
+dependencies = [
+    # CLI
+    "click>=8.1.7",
+    "rich>=13.7.0",
+    # HTTP (async)
+    "httpx>=0.27.0",
+    # Validation
+    "pydantic>=2.6.0",
+    "pydantic-settings>=2.2.0",
+    # Secrets
+    "python-dotenv>=1.0.0",
+    # Package handling
+    "packaging>=24.0",
+    # Anthropic SDK
+    "anthropic>=0.28.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.1.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=5.0.0",
+    "respx>=0.21.0",       # httpx mock library — used in unit tests
+    "ruff>=0.4.0",
+    "mypy>=1.9.0",
+    "types-click",
+]
+api = [
+    "fastapi>=0.111.0",
+    "uvicorn[standard]>=0.29.0",
+]
+
+[project.scripts]
+chainwatch = "chainwatch.cli:cli"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/chainwatch"]
+
+# ── ruff ──────────────────────────────────────────────────────────────────────
+[tool.ruff]
+src = ["src"]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "ANN"]
+ignore = [
+    "ANN101",  # Missing type annotation for self
+    "ANN102",  # Missing type annotation for cls
+    "ANN401",  # Dynamically typed expressions (Any) are disallowed
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ANN"]  # Don't enforce annotations in tests
+
+# ── mypy ──────────────────────────────────────────────────────────────────────
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+mypy_path = "src"
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+
+# ── pytest ────────────────────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "--cov=chainwatch --cov-report=term-missing --cov-fail-under=0"
+# cov-fail-under starts at 0 — we'll ratchet it up as we add real implementations
+
+[tool.coverage.run]
+source = ["src/chainwatch"]
+omit = ["*/tests/*"]

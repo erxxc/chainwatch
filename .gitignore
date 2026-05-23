@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# uv
+.venv/
+uv.lock          # committed — but listed here so editors don't flag it
+.python-version  # committed
+
+# Environment / secrets — NEVER commit .env
+.env
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Type checking
+.mypy_cache/
+
+# Temp directories created during diff analysis
+/tmp/chainwatch-*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Dataset tarballs — preserved by hash; actual .tgz files not committed
+dataset/malicious/**/*.tgz
+dataset/malicious/**/*.tar.gz
+dataset/benign/**/*.tgz
+dataset/benign/**/*.tar.gz
