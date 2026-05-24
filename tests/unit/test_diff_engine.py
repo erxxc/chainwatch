@@ -14,6 +14,16 @@ import pytest
 from chainwatch.diff.chunker import chunk_diff
 from chainwatch.diff.engine import compute_diff
 
+
+@pytest.fixture(autouse=True)
+def _reset_settings_cache():
+    from chainwatch.config import get_settings
+
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 
@@ -143,6 +153,41 @@ class TestDiffEngine:
         a, b = simple_change
         result = compute_diff(a, b)
         assert result.total_diff_lines > 0
+
+    def test_oversized_added_source_file_is_not_read_into_diff(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CHAINWATCH_MAX_DIFF_FILE_BYTES", "1024")
+        from chainwatch.config import get_settings
+        get_settings.cache_clear()
+
+        a = tmp_path / "a"
+        b = tmp_path / "b"
+        a.mkdir()
+        b.mkdir()
+        (b / "huge.js").write_text("x" * 2048)
+
+        result = compute_diff(a, b)
+
+        assert "huge.js" in result.files_added
+        assert result.file_diffs[0].unified_diff is not None
+        assert "diff skipped" in result.file_diffs[0].unified_diff
+
+    def test_identical_oversized_files_are_not_reported_modified(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CHAINWATCH_MAX_DIFF_FILE_BYTES", "1024")
+        from chainwatch.config import get_settings
+        get_settings.cache_clear()
+
+        a = tmp_path / "a"
+        b = tmp_path / "b"
+        a.mkdir()
+        b.mkdir()
+        content = "x" * 2048
+        (a / "huge.js").write_text(content)
+        (b / "huge.js").write_text(content)
+
+        result = compute_diff(a, b)
+
+        assert result.files_modified == []
+        assert result.file_diffs == []
 
 
 # ── Chunker tests ─────────────────────────────────────────────────────────────

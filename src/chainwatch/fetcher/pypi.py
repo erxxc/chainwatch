@@ -31,7 +31,9 @@ import httpx
 
 from chainwatch.config import get_settings
 from chainwatch.fetcher.archive import (
+    configured_archive_hosts,
     download_with_limit,
+    host_from_url,
     validate_tar_members,
     validate_zip_infos,
 )
@@ -84,23 +86,15 @@ async def fetch_package_versions(
         _download_archive(client, to_dl["url"]),
     )
 
-    # Verify SHA256 against PyPI-reported digests
+    # Verify SHA256 against PyPI-reported digests. The JSON API always
+    # publishes sha256 for real PyPI projects; a response that omits it is
+    # either a broken mirror or actively hostile, and we refuse to keep going
+    # rather than silently use an unverified archive.
     from_sha256 = hashlib.sha256(from_bytes).hexdigest()
     to_sha256 = hashlib.sha256(to_bytes).hexdigest()
 
-    expected_from = from_dl.get("digests", {}).get("sha256")
-    expected_to = to_dl.get("digests", {}).get("sha256")
-
-    if expected_from and from_sha256 != expected_from:
-        raise ValueError(
-            f"SHA256 mismatch for {package}@{from_version}: "
-            f"expected {expected_from}, got {from_sha256}"
-        )
-    if expected_to and to_sha256 != expected_to:
-        raise ValueError(
-            f"SHA256 mismatch for {package}@{to_version}: "
-            f"expected {expected_to}, got {to_sha256}"
-        )
+    _verify_pypi_sha256(from_sha256, from_dl, package, from_version)
+    _verify_pypi_sha256(to_sha256, to_dl, package, to_version)
 
     # Extract to temp directories
     from_td = tempfile.TemporaryDirectory(prefix="chainwatch-from-")
@@ -193,7 +187,48 @@ def _pick_download(
 
 async def _download_archive(client: httpx.AsyncClient, url: str) -> bytes:
     """Download an archive with retry on rate limit."""
-    return await download_with_limit(client, url, label="PyPI archive")
+    return await download_with_limit(
+        client,
+        url,
+        label="PyPI archive",
+        allowed_hosts=_allowed_pypi_hosts(),
+    )
+
+
+def _allowed_pypi_hosts() -> frozenset[str]:
+    """Hosts permitted for PyPI archive downloads.
+
+    Always includes the configured ``CHAINWATCH_PYPI_REGISTRY`` host. When the
+    configured registry is the canonical ``pypi.org`` we also allow
+    ``files.pythonhosted.org``, which is where pypi.org serves sdists and
+    wheels from.
+    """
+    settings = get_settings()
+    hosts = {host_from_url(settings.pypi_registry)}
+    if "pypi.org" in hosts:
+        hosts.add("files.pythonhosted.org")
+    hosts.update(configured_archive_hosts())
+    return frozenset(hosts)
+
+
+def _verify_pypi_sha256(
+    actual_sha256: str,
+    download_entry: dict[str, Any],
+    package: str,
+    version: str,
+) -> None:
+    """Verify the downloaded bytes against the sha256 published in metadata."""
+    expected = (download_entry.get("digests") or {}).get("sha256")
+    if not expected:
+        raise ValueError(
+            f"PyPI metadata for {package}@{version} is missing a sha256 digest; "
+            "refusing to use an unverified archive"
+        )
+    if actual_sha256 != expected:
+        raise ValueError(
+            f"SHA256 mismatch for {package}@{version}: "
+            f"expected {expected}, got {actual_sha256}"
+        )
 
 
 def _extract_archive(data: bytes, dest: Path, filename: str) -> Path:

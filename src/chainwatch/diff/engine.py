@@ -23,11 +23,13 @@ Stub status: PARTIAL STUB
 from __future__ import annotations
 
 import difflib
+import hashlib
 import json
 import logging
 from pathlib import Path
 from typing import Any
 
+from chainwatch.config import get_settings
 from chainwatch.models import DiffSummary, FileDiff
 
 log = logging.getLogger(__name__)
@@ -71,8 +73,17 @@ def compute_diff(from_dir: Path, to_dir: Path) -> DiffSummary:
     modified: list[str] = []
 
     for rel_path in common:
-        from_text = (from_dir / rel_path).read_text(errors="replace")
-        to_text = (to_dir / rel_path).read_text(errors="replace")
+        from_path = from_dir / rel_path
+        to_path = to_dir / rel_path
+        skipped = _oversized_diff(from_path, to_path, rel_path)
+        if skipped is not None:
+            if _sha256_file(from_path) != _sha256_file(to_path):
+                modified.append(rel_path)
+                file_diffs.append(skipped)
+            continue
+
+        from_text = from_path.read_text(errors="replace")
+        to_text = to_path.read_text(errors="replace")
         if from_text == to_text:
             continue  # unchanged
         modified.append(rel_path)
@@ -81,7 +92,12 @@ def compute_diff(from_dir: Path, to_dir: Path) -> DiffSummary:
 
     # Add new files as diffs too (all lines are additions)
     for rel_path in added:
-        content = (to_dir / rel_path).read_text(errors="replace")
+        to_path = to_dir / rel_path
+        if _file_exceeds_diff_limit(to_path):
+            file_diffs.append(_skipped_file_diff(to_path, rel_path, "added"))
+            continue
+
+        content = to_path.read_text(errors="replace")
         lines = content.splitlines()
         file_diffs.append(FileDiff(
             path=rel_path,
@@ -130,6 +146,46 @@ def _enumerate_source_files(directory: Path) -> list[str]:
             rel = path.relative_to(directory)
             result.append(str(rel).replace("\\", "/"))
     return result
+
+
+def _file_exceeds_diff_limit(path: Path) -> bool:
+    settings = get_settings()
+    try:
+        return path.stat().st_size > settings.max_diff_file_bytes
+    except OSError:
+        return True
+
+
+def _oversized_diff(from_path: Path, to_path: Path, rel_path: str) -> FileDiff | None:
+    if not (_file_exceeds_diff_limit(from_path) or _file_exceeds_diff_limit(to_path)):
+        return None
+    return _skipped_file_diff(to_path, rel_path, "modified")
+
+
+def _skipped_file_diff(path: Path, rel_path: str, change_type: str) -> FileDiff:
+    settings = get_settings()
+    try:
+        size = path.stat().st_size
+    except OSError:
+        size = -1
+    return FileDiff(
+        path=rel_path,
+        change_type=change_type,
+        lines_added=0,
+        lines_removed=0,
+        unified_diff=(
+            f"[diff skipped: file size {size} bytes exceeds "
+            f"CHAINWATCH_MAX_DIFF_FILE_BYTES={settings.max_diff_file_bytes}]"
+        ),
+    )
+
+
+def _sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 def _unified_diff(from_text: str, to_text: str, path: str) -> FileDiff:

@@ -36,7 +36,12 @@ from typing import Any
 import httpx
 
 from chainwatch.config import get_settings
-from chainwatch.fetcher.archive import download_with_limit, validate_tar_members
+from chainwatch.fetcher.archive import (
+    configured_archive_hosts,
+    download_with_limit,
+    host_from_url,
+    validate_tar_members,
+)
 
 log = logging.getLogger(__name__)
 
@@ -193,7 +198,23 @@ def _get_version_info(
 
 async def _download_tarball(client: httpx.AsyncClient, url: str) -> bytes:
     """Download a tarball with retry on rate limit."""
-    return await download_with_limit(client, url, label="npm tarball")
+    return await download_with_limit(
+        client,
+        url,
+        label="npm tarball",
+        allowed_hosts=_allowed_npm_hosts(),
+    )
+
+
+def _allowed_npm_hosts() -> frozenset[str]:
+    """Hosts permitted for npm tarball downloads.
+
+    Derived from the configured ``CHAINWATCH_NPM_REGISTRY`` so private mirrors
+    keep working, but a hostile registry can no longer point ``dist.tarball``
+    at an arbitrary public host.
+    """
+    settings = get_settings()
+    return frozenset({host_from_url(settings.npm_registry)} | configured_archive_hosts())
 
 
 def _verify_npm_integrity(
@@ -202,21 +223,39 @@ def _verify_npm_integrity(
     package: str,
     version: str,
 ) -> None:
-    """Verify an npm tarball against dist.integrity or dist.shasum."""
+    """Verify an npm tarball against dist.integrity or dist.shasum.
+
+    Real npm responses always carry at least one of the two fields. If both are
+    absent we refuse to proceed rather than silently use an unverified archive,
+    since the only realistic source of that response is a hostile or broken
+    registry.
+    """
     dist = version_info.get("dist") or {}
     integrity = dist.get("integrity")
-    if isinstance(integrity, str) and integrity:
-        if _matches_sri(data, integrity):
-            return
-        raise ValueError(f"Integrity mismatch for {package}@{version}")
-
     shasum = dist.get("shasum")
+
+    if isinstance(integrity, str) and integrity:
+        if not _matches_sri(data, integrity):
+            raise ValueError(f"Integrity mismatch for {package}@{version}")
+        return
+
     if isinstance(shasum, str) and shasum:
         actual = hashlib.sha1(data).hexdigest()
         if actual != shasum:
             raise ValueError(
                 f"SHA1 mismatch for {package}@{version}: expected {shasum}, got {actual}"
             )
+        log.warning(
+            "npm registry only provided legacy SHA-1 shasum for %s@%s; "
+            "no SRI integrity field was returned",
+            package, version,
+        )
+        return
+
+    raise ValueError(
+        f"npm registry returned neither dist.integrity nor dist.shasum for "
+        f"{package}@{version}; refusing to use an unverified archive"
+    )
 
 
 def _matches_sri(data: bytes, integrity: str) -> bool:
