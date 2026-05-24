@@ -110,6 +110,19 @@ class Settings(BaseSettings):
         description="Maximum extracted size of any single archive member.",
     )
 
+    max_diff_file_bytes: int = Field(
+        default=2 * 1024 * 1024,
+        ge=1_024,
+        description="Maximum source file bytes read into the diff engine.",
+    )
+
+    allowed_archive_hosts: str | None = Field(
+        default=None,
+        description=(
+            "Comma-separated additional hosts permitted for package archive downloads."
+        ),
+    )
+
     # ── Registry URLs ─────────────────────────────────────────────────────────
 
     npm_registry: str = Field(

@@ -14,21 +14,31 @@ import tarfile
 import zipfile
 from pathlib import Path
 
+import httpx
 import pytest
+import respx
 
 from chainwatch.config import get_settings
-from chainwatch.fetcher.archive import validate_tar_members, validate_zip_infos
+from chainwatch.fetcher.archive import (
+    _validate_download_url,
+    download_with_limit,
+    validate_tar_members,
+    validate_zip_infos,
+)
 from chainwatch.fetcher.npm import (
     FetchResult,
+    _allowed_npm_hosts,
     _extract_npm_tarball,
     _get_version_info,
     _matches_sri,
     _verify_npm_integrity,
 )
 from chainwatch.fetcher.pypi import (
+    _allowed_pypi_hosts,
     _extract_tarball,
     _extract_zip,
     _pick_download,
+    _verify_pypi_sha256,
 )
 
 
@@ -166,6 +176,134 @@ class TestNpmIntegrity:
         version_info = {"dist": {"shasum": "0" * 40}}
         with pytest.raises(ValueError, match="SHA1 mismatch"):
             _verify_npm_integrity(b"package tarball", version_info, "pkg", "1.0.0")
+
+    def test_verify_missing_both_fields_raises(self):
+        """If npm returns neither integrity nor shasum we refuse to proceed (H-3)."""
+        with pytest.raises(ValueError, match="neither dist.integrity nor dist.shasum"):
+            _verify_npm_integrity(b"x", {"dist": {}}, "pkg", "1.0.0")
+
+    def test_verify_empty_integrity_and_no_shasum_raises(self):
+        """Empty integrity string must not count as a successful verification."""
+        with pytest.raises(ValueError, match="neither dist.integrity nor dist.shasum"):
+            _verify_npm_integrity(b"x", {"dist": {"integrity": ""}}, "pkg", "1.0.0")
+
+
+class TestPypiSha256Verification:
+    """H-2: missing sha256 in PyPI metadata must be fatal, not a silent pass."""
+
+    def test_accepts_matching_digest(self):
+        data = b"package archive"
+        digest = hashlib.sha256(data).hexdigest()
+        entry = {"digests": {"sha256": digest}}
+        _verify_pypi_sha256(digest, entry, "pkg", "1.0.0")
+
+    def test_missing_digests_field_raises(self):
+        with pytest.raises(ValueError, match="missing a sha256 digest"):
+            _verify_pypi_sha256("a" * 64, {}, "pkg", "1.0.0")
+
+    def test_missing_sha256_in_digests_raises(self):
+        entry = {"digests": {"md5": "abc"}}
+        with pytest.raises(ValueError, match="missing a sha256 digest"):
+            _verify_pypi_sha256("a" * 64, entry, "pkg", "1.0.0")
+
+    def test_mismatching_digest_raises(self):
+        entry = {"digests": {"sha256": "b" * 64}}
+        with pytest.raises(ValueError, match="SHA256 mismatch"):
+            _verify_pypi_sha256("a" * 64, entry, "pkg", "1.0.0")
+
+
+class TestDownloadUrlValidation:
+    def test_accepts_https_public_host(self):
+        assert (
+            _validate_download_url("https://registry.npmjs.org/pkg/-/pkg.tgz", label="test")
+            == "https://registry.npmjs.org/pkg/-/pkg.tgz"
+        )
+
+    def test_rejects_cleartext_url(self):
+        with pytest.raises(ValueError, match="https"):
+            _validate_download_url("http://registry.npmjs.org/pkg.tgz", label="test")
+
+    def test_rejects_loopback_ip(self):
+        with pytest.raises(ValueError, match="non-public IP"):
+            _validate_download_url("https://127.0.0.1/pkg.tgz", label="test")
+
+    def test_rejects_localhost(self):
+        with pytest.raises(ValueError, match="localhost"):
+            _validate_download_url("https://localhost/pkg.tgz", label="test")
+
+    def test_rejects_url_credentials(self):
+        with pytest.raises(ValueError, match="credentials"):
+            _validate_download_url("https://user:pass@example.com/pkg.tgz", label="test")
+
+    def test_rejects_host_outside_allow_list(self):
+        """H-1: a public host not in the allow-list must be rejected."""
+        allow = frozenset({"registry.npmjs.org"})
+        with pytest.raises(ValueError, match="not in the allow-list"):
+            _validate_download_url(
+                "https://attacker.example.com/pkg.tgz",
+                label="test",
+                allowed_hosts=allow,
+            )
+
+    def test_accepts_host_inside_allow_list(self):
+        allow = frozenset({"registry.npmjs.org"})
+        assert (
+            _validate_download_url(
+                "https://registry.npmjs.org/pkg/-/pkg.tgz",
+                label="test",
+                allowed_hosts=allow,
+            )
+            == "https://registry.npmjs.org/pkg/-/pkg.tgz"
+        )
+
+    def test_allow_list_is_case_insensitive(self):
+        allow = frozenset({"REGISTRY.npmjs.ORG"})
+        _validate_download_url(
+            "https://registry.npmjs.org/pkg/-/pkg.tgz",
+            label="test",
+            allowed_hosts=allow,
+        )
+
+    @respx.mock
+    async def test_redirect_does_not_consume_retry_budget(self, monkeypatch):
+        monkeypatch.setenv("CHAINWATCH_MAX_RETRIES", "0")
+        get_settings.cache_clear()
+
+        start = "https://registry.npmjs.org/pkg/-/pkg.tgz"
+        final = "https://registry.npmjs.org/pkg/-/pkg-final.tgz"
+        respx.get(start).respond(status_code=302, headers={"Location": final})
+        respx.get(final).respond(content=b"archive")
+
+        async with httpx.AsyncClient() as client:
+            result = await download_with_limit(
+                client,
+                start,
+                label="test",
+                allowed_hosts=frozenset({"registry.npmjs.org"}),
+            )
+
+        assert result == b"archive"
+
+
+class TestArchiveHostAllowList:
+    def test_npm_includes_configured_extra_archive_hosts(self, monkeypatch):
+        monkeypatch.setenv(
+            "CHAINWATCH_ALLOWED_ARCHIVE_HOSTS",
+            "Artifacts.EXAMPLE.com,https://cdn.example.com/path",
+        )
+        get_settings.cache_clear()
+
+        assert _allowed_npm_hosts() == frozenset(
+            {"registry.npmjs.org", "artifacts.example.com", "cdn.example.com"}
+        )
+
+    def test_pypi_includes_default_cdn_and_configured_extra_hosts(self, monkeypatch):
+        monkeypatch.setenv("CHAINWATCH_ALLOWED_ARCHIVE_HOSTS", "artifacts.example.com")
+        get_settings.cache_clear()
+
+        assert _allowed_pypi_hosts() == frozenset(
+            {"pypi.org", "files.pythonhosted.org", "artifacts.example.com"}
+        )
 
 
 # ── npm: FetchResult context manager ─────────────────────────────────────────
