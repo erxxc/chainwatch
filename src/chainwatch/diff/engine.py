@@ -22,12 +22,17 @@ Stub status: PARTIAL STUB
 
 from __future__ import annotations
 
+import ast
+import configparser
 import difflib
 import hashlib
 import json
 import logging
+import tomllib
 from pathlib import Path
 from typing import Any
+
+from packaging.requirements import InvalidRequirement, Requirement
 
 from chainwatch.config import get_settings
 from chainwatch.models import DiffSummary, FileDiff
@@ -221,8 +226,10 @@ def _extract_metadata_diff(from_dir: Path, to_dir: Path) -> dict[str, Any]:
     """
     Compare package metadata files between versions.
 
-    Currently implements package.json parsing.  setup.py / pyproject.toml
-    parsing is stubbed — they return empty results.
+    Handles the npm ``package.json`` (dependencies, install hooks, author) and
+    the three Python manifests — ``pyproject.toml``, ``setup.cfg``, and
+    ``setup.py`` (dependency lists only, parsed statically; ``setup.py`` is
+    never executed). Also flags newly-introduced native addons.
 
     Returns a dict matching the extra kwargs of DiffSummary's metadata fields.
     """
@@ -234,42 +241,165 @@ def _extract_metadata_diff(from_dir: Path, to_dir: Path) -> dict[str, Any]:
         "native_addons_added": False,
     }
 
-    # ── package.json ─────────────────────────────────────────────────────────
-    from_pkg = from_dir / "package.json"
-    to_pkg = to_dir / "package.json"
+    from_deps: set[str] = set()
+    to_deps: set[str] = set()
 
-    if from_pkg.exists() and to_pkg.exists():
-        try:
-            from_meta = json.loads(from_pkg.read_text())
-            to_meta = json.loads(to_pkg.read_text())
+    # ── npm package.json ─────────────────────────────────────────────────────
+    npm_from = _npm_manifest(from_dir / "package.json")
+    npm_to = _npm_manifest(to_dir / "package.json")
+    if npm_from is not None:
+        from_deps |= npm_from["deps"]
+    if npm_to is not None:
+        to_deps |= npm_to["deps"]
+    # Install hooks and maintainer changes are only meaningful when we can
+    # compare two manifests, so keep the conservative both-present requirement.
+    if npm_from is not None and npm_to is not None:
+        for hook in ("postinstall", "preinstall", "install"):
+            if hook not in npm_from["scripts"] and hook in npm_to["scripts"]:
+                result["new_install_hooks"].append(hook)
+        if npm_from["author"] != npm_to["author"]:
+            result["maintainer_changed"] = True
 
-            from_deps = set(
-                (from_meta.get("dependencies") or {}).keys()
-            ) | set((from_meta.get("devDependencies") or {}).keys())
-            to_deps = set(
-                (to_meta.get("dependencies") or {}).keys()
-            ) | set((to_meta.get("devDependencies") or {}).keys())
+    # ── Python: pyproject.toml / setup.cfg / setup.py ────────────────────────
+    from_deps |= _python_dependencies(from_dir)
+    to_deps |= _python_dependencies(to_dir)
 
-            result["new_dependencies"] = sorted(to_deps - from_deps)
-            result["removed_dependencies"] = sorted(from_deps - to_deps)
+    result["new_dependencies"] = sorted(to_deps - from_deps)
+    result["removed_dependencies"] = sorted(from_deps - to_deps)
 
-            # Install hooks: look at scripts.postinstall / scripts.preinstall
-            from_scripts = from_meta.get("scripts") or {}
-            to_scripts = to_meta.get("scripts") or {}
-            hooks = ["postinstall", "preinstall", "install"]
-            for hook in hooks:
-                if hook not in from_scripts and hook in to_scripts:
-                    result["new_install_hooks"].append(hook)
-
-            # Maintainer change heuristic: check "author" field
-            if from_meta.get("author") != to_meta.get("author"):
-                result["maintainer_changed"] = True
-
-        except (json.JSONDecodeError, KeyError) as exc:
-            log.warning("Failed to parse package.json metadata: %s", exc)
-
-    # ── setup.py / pyproject.toml — STUB ─────────────────────────────────────
-    # Real implementation: parse AST of setup.py or use tomllib for pyproject.toml
-    # For now these return empty — the skeleton works without them.
+    # ── Native addons (binding.gyp / compiled artifacts / C extensions) ──────
+    result["native_addons_added"] = (
+        _has_native_addons(to_dir) and not _has_native_addons(from_dir)
+    )
 
     return result
+
+
+def _npm_manifest(path: Path) -> dict[str, Any] | None:
+    """Parse an npm package.json into {deps, scripts, author}, or None if absent."""
+    if not path.is_file():
+        return None
+    try:
+        meta = json.loads(path.read_text(errors="replace"))
+    except (json.JSONDecodeError, OSError) as exc:
+        log.warning("Failed to parse package.json metadata: %s", exc)
+        return None
+    deps = set((meta.get("dependencies") or {}).keys()) | set(
+        (meta.get("devDependencies") or {}).keys()
+    )
+    return {
+        "deps": deps,
+        "scripts": meta.get("scripts") or {},
+        "author": meta.get("author"),
+    }
+
+
+def _python_dependencies(directory: Path) -> set[str]:
+    """Union of dependency names declared across the Python manifests."""
+    return (
+        _pyproject_dependencies(directory / "pyproject.toml")
+        | _setup_cfg_dependencies(directory / "setup.cfg")
+        | _setup_py_dependencies(directory / "setup.py")
+    )
+
+
+def _requirement_name(spec: str) -> str | None:
+    """Return the normalised distribution name from a PEP 508 requirement string."""
+    spec = spec.strip().rstrip(",")
+    if not spec:
+        return None
+    try:
+        return Requirement(spec).name.lower()
+    except (InvalidRequirement, ValueError):
+        return None
+
+
+def _pyproject_dependencies(path: Path) -> set[str]:
+    if not path.is_file():
+        return set()
+    try:
+        data = tomllib.loads(path.read_text(errors="replace"))
+    except (tomllib.TOMLDecodeError, OSError) as exc:
+        log.warning("Failed to parse pyproject.toml: %s", exc)
+        return set()
+    project = data.get("project") or {}
+    specs: list[str] = list(project.get("dependencies") or [])
+    for group in (project.get("optional-dependencies") or {}).values():
+        specs.extend(group or [])
+    # Build-time requirements are an install-time attack surface too.
+    specs.extend((data.get("build-system") or {}).get("requires") or [])
+    return {name for spec in specs if (name := _requirement_name(spec))}
+
+
+def _setup_cfg_dependencies(path: Path) -> set[str]:
+    if not path.is_file():
+        return set()
+    parser = configparser.ConfigParser(interpolation=None)
+    try:
+        parser.read_string(path.read_text(errors="replace"))
+    except (configparser.Error, OSError) as exc:
+        log.warning("Failed to parse setup.cfg: %s", exc)
+        return set()
+    lines: list[str] = []
+    if parser.has_option("options", "install_requires"):
+        lines.extend(parser.get("options", "install_requires").splitlines())
+    if parser.has_section("options.extras_require"):
+        for _extra, value in parser.items("options.extras_require"):
+            lines.extend(value.splitlines())
+    return {name for line in lines if (name := _requirement_name(line))}
+
+
+def _setup_py_dependencies(path: Path) -> set[str]:
+    """Statically extract literal install_requires/setup_requires from setup.py.
+
+    Parses the AST only — the file is never imported or executed, which matters
+    because a hostile package's setup.py is attacker-controlled code that would
+    otherwise run arbitrary logic the moment we touched it.
+    """
+    if not path.is_file():
+        return set()
+    try:
+        tree = ast.parse(path.read_text(errors="replace"))
+    except (SyntaxError, ValueError, OSError) as exc:
+        log.warning("Failed to parse setup.py: %s", exc)
+        return set()
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        for kw in node.keywords:
+            if kw.arg not in ("install_requires", "setup_requires"):
+                continue
+            if not isinstance(kw.value, ast.List | ast.Tuple):
+                continue
+            for elt in kw.value.elts:
+                if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
+                    name = _requirement_name(elt.value)
+                    if name:
+                        names.add(name)
+    return names
+
+
+_NATIVE_ADDON_EXTS: frozenset[str] = frozenset(
+    {".node", ".so", ".pyd", ".dylib", ".dll", ".pyx"}
+)
+
+
+def _has_native_addons(directory: Path) -> bool:
+    """True if the directory shows native-addon indicators (compiled or buildable)."""
+    for path in directory.rglob("*"):
+        if not path.is_file():
+            continue
+        if path.name == "binding.gyp":
+            return True
+        if path.suffix.lower() in _NATIVE_ADDON_EXTS:
+            return True
+    setup_py = directory / "setup.py"
+    if setup_py.is_file():
+        try:
+            src = setup_py.read_text(errors="replace")
+        except OSError:
+            return False
+        if "ext_modules" in src or "Extension(" in src:
+            return True
+    return False

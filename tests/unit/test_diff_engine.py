@@ -190,6 +190,124 @@ class TestDiffEngine:
         assert result.file_diffs == []
 
 
+# ── Python metadata tests ─────────────────────────────────────────────────────
+
+
+def _two_dirs(tmp_path: Path) -> tuple[Path, Path]:
+    a = tmp_path / "a"
+    b = tmp_path / "b"
+    a.mkdir()
+    b.mkdir()
+    return a, b
+
+
+class TestPythonMetadata:
+    def test_pyproject_new_dependency_detected(self, tmp_path: Path):
+        a, b = _two_dirs(tmp_path)
+        (a / "pyproject.toml").write_text(
+            '[project]\nname = "p"\ndependencies = ["requests>=2.0"]\n'
+        )
+        (b / "pyproject.toml").write_text(
+            '[project]\nname = "p"\ndependencies = ["requests>=2.0", "httpx>=0.27"]\n'
+        )
+        result = compute_diff(a, b)
+        assert "httpx" in result.new_dependencies
+        assert "requests" not in result.new_dependencies
+
+    def test_pyproject_optional_and_build_deps_detected(self, tmp_path: Path):
+        a, b = _two_dirs(tmp_path)
+        (a / "pyproject.toml").write_text('[project]\nname = "p"\n')
+        (b / "pyproject.toml").write_text(
+            '[build-system]\nrequires = ["cffi"]\n\n'
+            '[project]\nname = "p"\n\n'
+            '[project.optional-dependencies]\ndev = ["pytest"]\n'
+        )
+        result = compute_diff(a, b)
+        assert "cffi" in result.new_dependencies
+        assert "pytest" in result.new_dependencies
+
+    def test_setup_py_install_requires_detected(self, tmp_path: Path):
+        a, b = _two_dirs(tmp_path)
+        (a / "setup.py").write_text(
+            "from setuptools import setup\nsetup(name='p', install_requires=['click'])\n"
+        )
+        (b / "setup.py").write_text(
+            "from setuptools import setup\n"
+            "setup(name='p', install_requires=['click', 'cryptography'])\n"
+        )
+        result = compute_diff(a, b)
+        assert "cryptography" in result.new_dependencies
+
+    def test_setup_py_is_never_executed(self, tmp_path: Path):
+        """A hostile setup.py must be parsed by AST, never run."""
+        a, b = _two_dirs(tmp_path)
+        (a / "setup.py").write_text(
+            "from setuptools import setup\nsetup(install_requires=[])\n"
+        )
+        # os._exit(99) would kill the test process if setup.py were executed.
+        (b / "setup.py").write_text(
+            "import os\n"
+            "os._exit(99)\n"
+            "from setuptools import setup\n"
+            "setup(install_requires=['requests'])\n"
+        )
+        result = compute_diff(a, b)  # must return, not exit
+        assert "requests" in result.new_dependencies
+
+    def test_setup_cfg_install_requires_detected(self, tmp_path: Path):
+        a, b = _two_dirs(tmp_path)
+        (a / "setup.cfg").write_text("[options]\ninstall_requires =\n    requests\n")
+        (b / "setup.cfg").write_text(
+            "[options]\ninstall_requires =\n    requests\n    pyyaml\n"
+        )
+        result = compute_diff(a, b)
+        assert "pyyaml" in result.new_dependencies
+
+    def test_malformed_pyproject_degrades_gracefully(self, tmp_path: Path):
+        a, b = _two_dirs(tmp_path)
+        (b / "pyproject.toml").write_text("this is not = valid toml [[[")
+        result = compute_diff(a, b)  # must not raise
+        assert result.new_dependencies == []
+
+
+# ── Native addon tests ────────────────────────────────────────────────────────
+
+
+class TestNativeAddons:
+    def test_binding_gyp_added_flags_native(self, tmp_path: Path):
+        a, b = _two_dirs(tmp_path)
+        (a / "index.js").write_text("// x\n")
+        (b / "index.js").write_text("// x\n")
+        (b / "binding.gyp").write_text("{}\n")
+        assert compute_diff(a, b).native_addons_added is True
+
+    def test_compiled_artifact_added_flags_native(self, tmp_path: Path):
+        a, b = _two_dirs(tmp_path)
+        (b / "mod.so").write_bytes(b"\x7fELF")
+        assert compute_diff(a, b).native_addons_added is True
+
+    def test_c_extension_in_setup_py_flags_native(self, tmp_path: Path):
+        a, b = _two_dirs(tmp_path)
+        (a / "setup.py").write_text("from setuptools import setup\nsetup()\n")
+        (b / "setup.py").write_text(
+            "from setuptools import setup, Extension\n"
+            "setup(ext_modules=[Extension('m', ['m.c'])])\n"
+        )
+        assert compute_diff(a, b).native_addons_added is True
+
+    def test_not_flagged_when_present_in_both(self, tmp_path: Path):
+        a, b = _two_dirs(tmp_path)
+        (a / "binding.gyp").write_text("{}\n")
+        (b / "binding.gyp").write_text("{}\n")
+        assert compute_diff(a, b).native_addons_added is False
+
+    def test_not_flagged_for_pure_source(self, tmp_path: Path):
+        a, b = _two_dirs(tmp_path)
+        (a / "index.js").write_text("// a\n")
+        (b / "index.js").write_text("// b\n")
+        assert compute_diff(a, b).native_addons_added is False
+
+
 # ── Chunker tests ─────────────────────────────────────────────────────────────
 
 
