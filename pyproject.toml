@@ -91,8 +91,8 @@ disallow_untyped_decorators = false
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-addopts = "--cov=chainwatch --cov-report=term-missing --cov-fail-under=0"
-# cov-fail-under starts at 0 — we'll ratchet it up as we add real implementations
+addopts = "--cov=chainwatch --cov-report=term-missing --cov-fail-under=85"
+# Ratcheted to 85 once the core pipeline landed (currently ~87%). Raise as coverage grows.
 
 [tool.coverage.run]
 source = ["src/chainwatch"]
