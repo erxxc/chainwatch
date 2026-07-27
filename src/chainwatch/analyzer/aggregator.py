@@ -41,6 +41,7 @@ from chainwatch.models import (
     FeedStatus,
     RiskDimension,
     RiskReport,
+    ScoreModifier,
 )
 
 log = logging.getLogger(__name__)
@@ -85,7 +86,7 @@ def build_report(
         A fully validated RiskReport ready for emission.
     """
     raw_score = _compute_llm_base_score(dimensions)
-    adjusted_score = _apply_feed_modifiers(raw_score, feed_results)
+    adjusted_score, modifiers = _apply_feed_modifiers(raw_score, feed_results)
     final_score = max(0.0, min(100.0, adjusted_score))
     severity = RiskReport.severity_for_score(final_score)
 
@@ -101,8 +102,10 @@ def build_report(
         to_version=to_version,
         risk_score=round(final_score, 1),
         severity=severity,
+        llm_base_score=round(raw_score, 1),
         dimensions=dimensions,
         feed_results=feed_results,
+        score_modifiers=modifiers,
         diff_summary=diff_summary,
         llm_model=llm_model,
         llm_summary=llm_summary,
@@ -129,40 +132,78 @@ def _compute_llm_base_score(dimensions: list[RiskDimension]) -> float:
     return sum(dim.weighted_contribution for dim in dimensions)
 
 
-def _apply_feed_modifiers(base_score: float, feed_results: list[FeedResult]) -> float:
+def _apply_feed_modifiers(
+    base_score: float, feed_results: list[FeedResult]
+) -> tuple[float, list[ScoreModifier]]:
     """
-    Apply feed-based score adjustments.
+    Apply feed-based score adjustments and return the adjusted score together
+    with a decomposable trace of every modifier applied.
 
-    The modifier logic is additive with a floor — we can push the score up
-    based on feed signals, but the LLM base score is never reduced below
-    what the LLM found.  The exception is the Scorecard penalty, which
-    is a mild mitigant that can lower a borderline score.
+    The modifier logic is additive with a floor — we can push the score up based
+    on feed signals, but the LLM base score is never reduced below what the LLM
+    found.  The exception is the Scorecard penalty, a mild mitigant that can
+    lower a borderline score.
+
+    Each applied adjustment is recorded as a ``ScoreModifier`` whose ``delta`` is
+    the signed change it contributed, so a saved report can reconstruct the path
+    ``llm_base_score → risk_score`` without re-running the pipeline.
 
     See module docstring for the full modifier table.
     """
     score = base_score
-    modifiers_applied: list[str] = []
+    modifiers: list[ScoreModifier] = []
 
     for feed in feed_results:
         if feed.status == FeedStatus.malicious and score < _MALICIOUS_FEED_FLOOR_SCORE:
+            delta = _MALICIOUS_FEED_FLOOR_SCORE - score
             score = _MALICIOUS_FEED_FLOOR_SCORE
-            modifiers_applied.append(
-                f"feed:{feed.source}:malicious floor={_MALICIOUS_FEED_FLOOR_SCORE}"
-            )
+            modifiers.append(ScoreModifier(
+                source=feed.source,
+                rule="malicious_floor",
+                delta=round(delta, 1),
+                note=(
+                    f"{feed.source} reported malicious — raised score to floor "
+                    f"{_MALICIOUS_FEED_FLOOR_SCORE:.0f}"
+                ),
+            ))
 
         if feed.source == "rekor" and feed.signing_identity_changed:
             score += _REKOR_IDENTITY_CHANGE_BONUS
-            modifiers_applied.append(f"rekor:identity_changed +{_REKOR_IDENTITY_CHANGE_BONUS}")
+            modifiers.append(ScoreModifier(
+                source="rekor",
+                rule="rekor_identity_changed",
+                delta=_REKOR_IDENTITY_CHANGE_BONUS,
+                note="Sigstore signing identity differs from the previous version",
+            ))
 
         if feed.source == "scorecard" and feed.scorecard_score is not None:
             if feed.scorecard_score < 4.0:
                 score += _POOR_SCORECARD_BONUS
-                modifiers_applied.append(f"scorecard:poor +{_POOR_SCORECARD_BONUS}")
+                modifiers.append(ScoreModifier(
+                    source="scorecard",
+                    rule="scorecard_poor",
+                    delta=_POOR_SCORECARD_BONUS,
+                    note=(
+                        f"Weak OpenSSF Scorecard ({feed.scorecard_score:.1f}/10) "
+                        "amplifies risk"
+                    ),
+                ))
             elif feed.scorecard_score > 7.0:
                 score += _GOOD_SCORECARD_PENALTY
-                modifiers_applied.append(f"scorecard:good {_GOOD_SCORECARD_PENALTY}")
+                modifiers.append(ScoreModifier(
+                    source="scorecard",
+                    rule="scorecard_good",
+                    delta=_GOOD_SCORECARD_PENALTY,
+                    note=(
+                        f"Strong OpenSSF Scorecard ({feed.scorecard_score:.1f}/10) "
+                        "is a mild mitigant"
+                    ),
+                ))
 
-    if modifiers_applied:
-        log.debug("Feed modifiers applied: %s", ", ".join(modifiers_applied))
+    if modifiers:
+        log.debug(
+            "Feed modifiers applied: %s",
+            ", ".join(f"{m.source}:{m.rule} {m.delta:+.1f}" for m in modifiers),
+        )
 
-    return score
+    return score, modifiers

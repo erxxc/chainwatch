@@ -150,6 +150,23 @@ class TestBuildDimensions:
         assert obf.score == 0.0
         assert obf.reasoning == "Not assessed."
 
+    def test_parses_and_clamps_confidence(self):
+        aggregated = {
+            "network_calls": {"score": 8.0, "reasoning": "Bad.", "confidence": 1.5},
+            "obfuscation": {"score": 1.0, "reasoning": "Minor.", "confidence": 0.4},
+        }
+        dims = _build_dimensions(aggregated)
+        net = next(d for d in dims if d.name == "network_calls")
+        obf = next(d for d in dims if d.name == "obfuscation")
+        assert net.confidence == 1.0  # clamped from 1.5
+        assert obf.confidence == pytest.approx(0.4)
+
+    def test_confidence_none_when_absent(self):
+        aggregated = {"network_calls": {"score": 3.0, "reasoning": "No confidence key."}}
+        dims = _build_dimensions(aggregated)
+        net = next(d for d in dims if d.name == "network_calls")
+        assert net.confidence is None
+
 
 # ── Score aggregation ─────────────────────────────────────────────────────────
 
@@ -199,6 +216,12 @@ class TestStubDimensions:
         dims = _build_stub_dimensions()
         for dim in dims:
             assert dim.score <= 2.0
+
+    def test_stub_dims_have_confidence(self):
+        dims = _build_stub_dimensions()
+        for dim in dims:
+            assert dim.confidence is not None
+            assert 0.0 <= dim.confidence <= 1.0
 
 
 # ── Stub mode integration ────────────────────────────────────────────────────
