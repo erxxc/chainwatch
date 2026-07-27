@@ -33,8 +33,8 @@ from chainwatch.config import get_settings
 from chainwatch.fetcher.archive import (
     configured_archive_hosts,
     download_with_limit,
+    extract_tar_safely,
     host_from_url,
-    validate_tar_members,
     validate_zip_infos,
 )
 from chainwatch.fetcher.npm import FetchResult  # reuse shared FetchResult type
@@ -254,8 +254,7 @@ def _extract_tarball(data: bytes, dest: Path) -> Path:
     """Extract a .tar.gz sdist archive."""
     buf = io.BytesIO(data)
     with tarfile.open(fileobj=buf, mode="r:gz") as tar:
-        members = validate_tar_members(tar.getmembers(), label="PyPI sdist")
-        tar.extractall(path=dest, members=members, filter="data")
+        extract_tar_safely(tar, str(dest), label="PyPI sdist")
 
     # sdist archives usually have a single top-level directory
     subdirs = [p for p in dest.iterdir() if p.is_dir()]

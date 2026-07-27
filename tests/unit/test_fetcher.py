@@ -22,6 +22,7 @@ from chainwatch.config import get_settings
 from chainwatch.fetcher.archive import (
     _validate_download_url,
     download_with_limit,
+    safe_archive_path,
     validate_tar_members,
     validate_zip_infos,
 )
@@ -137,6 +138,19 @@ class TestExtractNpmTarball:
         info.size = 1048577
         with pytest.raises(ValueError, match="too large"):
             validate_tar_members([info], label="test tar")
+
+    def test_rejects_too_many_tar_directories(self, monkeypatch):
+        monkeypatch.setenv("CHAINWATCH_MAX_ARCHIVE_FILES", "1")
+        get_settings.cache_clear()
+        first = tarfile.TarInfo(name="package/one")
+        first.type = tarfile.DIRTYPE
+        second = tarfile.TarInfo(name="package/two")
+        second.type = tarfile.DIRTYPE
+        with pytest.raises(ValueError, match="too many members"):
+            validate_tar_members([first, second], label="test tar")
+
+    def test_rejects_backslash_archive_paths(self):
+        assert not safe_archive_path(r"package\..\evil.py")
 
     def test_skips_tar_symlink(self, tmp_path):
         buf = io.BytesIO()
@@ -434,6 +448,15 @@ class TestExtractZip:
         info.file_size = 1048577
         with pytest.raises(ValueError, match="too large"):
             validate_zip_infos([info], label="test zip")
+
+    def test_rejects_too_many_zip_directories(self, monkeypatch):
+        monkeypatch.setenv("CHAINWATCH_MAX_ARCHIVE_FILES", "1")
+        get_settings.cache_clear()
+        with pytest.raises(ValueError, match="too many members"):
+            validate_zip_infos(
+                [zipfile.ZipInfo("one/"), zipfile.ZipInfo("two/")],
+                label="test zip",
+            )
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

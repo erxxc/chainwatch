@@ -170,60 +170,39 @@ def _normalize_host_entry(entry: str) -> str:
 
 def safe_archive_path(name: str) -> bool:
     """Return True only for relative POSIX archive paths without traversal."""
-    if not name:
+    if not name or "\\" in name:
         return False
     path = PurePosixPath(name)
     return not path.is_absolute() and ".." not in path.parts
 
 
+def extract_tar_safely(tar: tarfile.TarFile, dest: str, *, label: str) -> None:
+    """Validate and extract tar members incrementally to avoid member-list DoS."""
+    state = _ArchiveValidationState(label=label)
+    for member in tar:
+        if _validate_tar_member(member, state):
+            tar.extract(member, path=dest, filter="data")
+
+
 def validate_tar_members(members: list[tarfile.TarInfo], *, label: str) -> list[tarfile.TarInfo]:
     """Filter and validate tar members before extraction."""
-    settings = get_settings()
+    state = _ArchiveValidationState(label=label)
     safe_members: list[tarfile.TarInfo] = []
-    total_size = 0
-    file_count = 0
 
     for member in members:
-        if not safe_archive_path(member.name):
-            log.warning("Skipping unsafe tar member: %s", member.name)
-            continue
-        if member.issym() or member.islnk():
-            log.warning("Skipping archive link member: %s", member.name)
-            continue
-        if not (member.isfile() or member.isdir()):
-            log.warning("Skipping unsupported tar member: %s", member.name)
-            continue
-        if member.isfile():
-            file_count += 1
-            total_size += member.size
-            if member.size > settings.max_archive_file_bytes:
-                raise ValueError(
-                    f"{label} member {member.name} is too large: {member.size} bytes "
-                    f"exceeds limit {settings.max_archive_file_bytes}"
-                )
-            if file_count > settings.max_archive_files:
-                raise ValueError(
-                    f"{label} archive has too many files: {file_count} exceeds "
-                    f"limit {settings.max_archive_files}"
-                )
-            if total_size > settings.max_extracted_bytes:
-                raise ValueError(
-                    f"{label} archive expands to too many bytes: {total_size} exceeds "
-                    f"limit {settings.max_extracted_bytes}"
-                )
-        safe_members.append(member)
+        if _validate_tar_member(member, state):
+            safe_members.append(member)
 
     return safe_members
 
 
 def validate_zip_infos(infos: list[zipfile.ZipInfo], *, label: str) -> list[zipfile.ZipInfo]:
     """Filter and validate zip members before extraction."""
-    settings = get_settings()
+    state = _ArchiveValidationState(label=label)
     safe_infos: list[zipfile.ZipInfo] = []
-    total_size = 0
-    file_count = 0
 
     for info in infos:
+        state.count_member()
         if not safe_archive_path(info.filename):
             log.warning("Skipping unsafe zip member: %s", info.filename)
             continue
@@ -234,26 +213,55 @@ def validate_zip_infos(infos: list[zipfile.ZipInfo], *, label: str) -> list[zipf
             safe_infos.append(info)
             continue
 
-        file_count += 1
-        total_size += info.file_size
-        if info.file_size > settings.max_archive_file_bytes:
-            raise ValueError(
-                f"{label} member {info.filename} is too large: {info.file_size} bytes "
-                f"exceeds limit {settings.max_archive_file_bytes}"
-            )
-        if file_count > settings.max_archive_files:
-            raise ValueError(
-                f"{label} archive has too many files: {file_count} exceeds "
-                f"limit {settings.max_archive_files}"
-            )
-        if total_size > settings.max_extracted_bytes:
-            raise ValueError(
-                f"{label} archive expands to too many bytes: {total_size} exceeds "
-                f"limit {settings.max_extracted_bytes}"
-            )
+        state.count_file(info.filename, info.file_size)
         safe_infos.append(info)
 
     return safe_infos
+
+
+class _ArchiveValidationState:
+    def __init__(self, *, label: str) -> None:
+        self.label = label
+        self.settings = get_settings()
+        self.member_count = 0
+        self.total_size = 0
+
+    def count_member(self) -> None:
+        self.member_count += 1
+        if self.member_count > self.settings.max_archive_files:
+            raise ValueError(
+                f"{self.label} archive has too many members: {self.member_count} exceeds "
+                f"limit {self.settings.max_archive_files}"
+            )
+
+    def count_file(self, name: str, size: int) -> None:
+        self.total_size += size
+        if size > self.settings.max_archive_file_bytes:
+            raise ValueError(
+                f"{self.label} member {name} is too large: {size} bytes "
+                f"exceeds limit {self.settings.max_archive_file_bytes}"
+            )
+        if self.total_size > self.settings.max_extracted_bytes:
+            raise ValueError(
+                f"{self.label} archive expands to too many bytes: {self.total_size} exceeds "
+                f"limit {self.settings.max_extracted_bytes}"
+            )
+
+
+def _validate_tar_member(member: tarfile.TarInfo, state: _ArchiveValidationState) -> bool:
+    state.count_member()
+    if not safe_archive_path(member.name):
+        log.warning("Skipping unsafe tar member: %s", member.name)
+        return False
+    if member.issym() or member.islnk():
+        log.warning("Skipping archive link member: %s", member.name)
+        return False
+    if not (member.isfile() or member.isdir()):
+        log.warning("Skipping unsupported tar member: %s", member.name)
+        return False
+    if member.isfile():
+        state.count_file(member.name, member.size)
+    return True
 
 
 def _zipinfo_is_symlink(info: zipfile.ZipInfo) -> bool:

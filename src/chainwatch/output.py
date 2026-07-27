@@ -161,15 +161,18 @@ def _emit_rich(report: RiskReport, *, output_file: Path | None) -> None:
     )
     dim_table.add_column("Dimension", style="white", min_width=20)
     dim_table.add_column("Score", justify="center", min_width=7)
+    dim_table.add_column("Conf", justify="center", min_width=6)
     dim_table.add_column("Weight", justify="center", min_width=7)
     dim_table.add_column("Contribution", justify="center", min_width=12)
-    dim_table.add_column("Reasoning", style="dim", min_width=40, max_width=60)
+    dim_table.add_column("Reasoning", style="dim", min_width=36, max_width=56)
 
     for dim in report.dimensions:
         score_style = _dim_score_style(dim.score)
+        conf = f"{dim.confidence:.2f}" if dim.confidence is not None else "—"
         dim_table.add_row(
             dim.label,
             Text(f"{dim.score:.1f}", style=score_style),
+            conf,
             f"{dim.weight * 100:.0f}%",
             f"{dim.weighted_contribution:.1f}",
             dim.reasoning,
@@ -216,7 +219,23 @@ def _emit_rich(report: RiskReport, *, output_file: Path | None) -> None:
     )
     console.print()
 
-    # ── 5. Diff Summary ───────────────────────────────────────────────────────
+    # ── 5. Score path (base → modifiers → final) ──────────────────────────────
+    if report.llm_base_score is not None:
+        path = Text()
+        path.append("LLM base ", style="dim")
+        path.append(f"{report.llm_base_score:.1f}", style="bold white")
+        for mod in report.score_modifiers:
+            sign = "+" if mod.delta >= 0 else ""
+            mstyle = "red" if mod.delta >= 0 else "green"
+            path.append(f"   {mod.source}:{mod.rule} ", style="dim")
+            path.append(f"{sign}{mod.delta:.1f}", style=mstyle)
+        path.append("   →  final ", style="dim")
+        path.append(f"{report.risk_score:.1f}", style=sev_style)
+        console.print("[bold dim]SCORE PATH[/bold dim]")
+        console.print(path)
+        console.print()
+
+    # ── 6. Diff Summary ───────────────────────────────────────────────────────
     ds = report.diff_summary
     diff_parts = []
     if ds.files_added:
@@ -235,7 +254,7 @@ def _emit_rich(report: RiskReport, *, output_file: Path | None) -> None:
     console.print("[bold dim]DIFF SUMMARY[/bold dim]  " + "  ·  ".join(diff_parts))
     console.print()
 
-    # ── 6. Provenance ─────────────────────────────────────────────────────────
+    # ── 7. Provenance ─────────────────────────────────────────────────────────
     ts = report.timestamp.strftime("%Y-%m-%d %H:%M:%S UTC")
     prov = (
         f"[dim]model: {report.llm_model}  ·  "

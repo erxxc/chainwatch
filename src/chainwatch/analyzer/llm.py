@@ -66,6 +66,7 @@ No preamble, no markdown, no explanation outside the JSON structure.
     {
       "name": "<dimension_name>",
       "score": <0.0 to 10.0>,
+      "confidence": <0.0 to 1.0>,
       "reasoning": "<concise explanation referencing specific lines or patterns>"
     }
   ],
@@ -87,6 +88,18 @@ No preamble, no markdown, no explanation outside the JSON structure.
 4-6   : Suspicious but ambiguous — needs context
 7-9   : Strong indicator, likely malicious
 10    : Definitive malicious pattern (e.g. exfiltration, cryptominer payload)
+
+## Confidence guide
+
+For each dimension also report `confidence` — your certainty in the score given \
+the evidence you can actually see:
+
+0.0-0.3 : Low — the diff is truncated/minified or the signal is ambiguous
+0.4-0.7 : Moderate — some uncertainty remains
+0.8-1.0 : High — the evidence is clear and unambiguous
+
+Lower your confidence when the diff is truncated and the relevant file is not \
+fully visible — a high score with low confidence is a signal to a human reviewer.
 
 ## Important
 
@@ -298,8 +311,19 @@ def _build_dimensions(
             score=score,
             weight=dim_def["weight"],
             reasoning=llm_data.get("reasoning", "No reasoning provided."),
+            confidence=_parse_confidence(llm_data.get("confidence")),
         ))
     return result
+
+
+def _parse_confidence(value: Any) -> float | None:
+    """Coerce an LLM-supplied confidence to a clamped 0.0–1.0 float, or None."""
+    if value is None:
+        return None
+    try:
+        return max(0.0, min(1.0, float(value)))
+    except (TypeError, ValueError):
+        return None
 
 
 def _build_stub_dimensions() -> list[RiskDimension]:
@@ -320,6 +344,7 @@ def _build_stub_dimensions() -> list[RiskDimension]:
             score=score,
             weight=dim_def["weight"],
             reasoning=reasoning,
+            confidence=0.9,
         ))
     return result
 

@@ -32,6 +32,7 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -39,8 +40,8 @@ from chainwatch.config import get_settings
 from chainwatch.fetcher.archive import (
     configured_archive_hosts,
     download_with_limit,
+    extract_tar_safely,
     host_from_url,
-    validate_tar_members,
 )
 
 log = logging.getLogger(__name__)
@@ -164,7 +165,10 @@ async def _fetch_metadata(
     package: str,
 ) -> dict[str, Any]:
     """Fetch the full package metadata document from npm registry."""
-    url = f"{registry}/{package}"
+    # Encode the whole name as a single path segment so scoped names resolve
+    # correctly: "@scope/pkg" -> "@scope%2Fpkg" (npm's registry convention).
+    # Unscoped names are unaffected (hyphens/dots are unreserved).
+    url = f"{registry}/{quote(package, safe='')}"
     settings = get_settings()
 
     for attempt in range(settings.max_retries + 1):
@@ -289,8 +293,7 @@ def _extract_npm_tarball(data: bytes, dest: Path) -> Path:
     """
     buf = io.BytesIO(data)
     with tarfile.open(fileobj=buf, mode="r:gz") as tar:
-        members = validate_tar_members(tar.getmembers(), label="npm tarball")
-        tar.extractall(path=dest, members=members, filter="data")
+        extract_tar_safely(tar, str(dest), label="npm tarball")
 
     # npm tarballs always contain a top-level "package/" directory
     package_dir = dest / "package"

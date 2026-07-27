@@ -111,6 +111,20 @@ class TestRiskDimension:
         )
         assert dim.weighted_contribution == 0.0
 
+    def test_confidence_defaults_to_none(self):
+        dim = RiskDimension(
+            name="obfuscation", label="Obfuscation", score=0.0,
+            weight=0.25, reasoning="None.",
+        )
+        assert dim.confidence is None
+
+    def test_confidence_bounds_enforced(self):
+        with pytest.raises(ValueError):
+            RiskDimension(
+                name="obfuscation", label="Obfuscation", score=0.0,
+                weight=0.25, reasoning="None.", confidence=1.5,
+            )
+
 
 # ── Severity mapping ──────────────────────────────────────────────────────────
 
@@ -190,7 +204,22 @@ class TestRiskReport:
 
     def test_schema_version_present(self):
         report = _make_report()
-        assert report.schema_version == "0.1.0"
+        assert report.schema_version == "0.2.0"
+
+    def test_llm_base_score_and_modifiers_default(self):
+        # A directly-constructed report carries the new fields with defaults.
+        report = _make_report()
+        assert report.llm_base_score is None
+        assert report.score_modifiers == []
+
+    def test_llm_base_score_and_modifiers_roundtrip(self):
+        from chainwatch.models import ScoreModifier
+        mod = ScoreModifier(source="scorecard", rule="scorecard_good", delta=-5.0, note="ok")
+        report = _make_report(llm_base_score=12.5, score_modifiers=[mod])
+        restored = RiskReport.model_validate_json(report.model_dump_json())
+        assert restored.llm_base_score == 12.5
+        assert restored.score_modifiers[0].rule == "scorecard_good"
+        assert restored.score_modifiers[0].delta == -5.0
 
     def test_json_serialisation_roundtrip(self):
         report = _make_report()
@@ -228,17 +257,21 @@ class TestAggregator:
             FeedResult(source="osv", status=FeedStatus.malicious, details="MAL"),
         ]
         # Low base score gets bumped to the floor
-        result = _apply_feed_modifiers(10.0, feeds)
+        result, modifiers = _apply_feed_modifiers(10.0, feeds)
         assert result == pytest.approx(55.0)
+        assert [m.rule for m in modifiers] == ["malicious_floor"]
+        # delta reconstructs the path: base + delta == floor
+        assert 10.0 + modifiers[0].delta == pytest.approx(55.0)
 
     def test_feed_malicious_doesnt_lower_high_score(self):
         from chainwatch.analyzer.aggregator import _apply_feed_modifiers
         feeds = [
             FeedResult(source="osv", status=FeedStatus.malicious, details="MAL"),
         ]
-        # Score already above floor — not changed downward
-        result = _apply_feed_modifiers(80.0, feeds)
+        # Score already above floor — not changed downward, no modifier recorded
+        result, modifiers = _apply_feed_modifiers(80.0, feeds)
         assert result == pytest.approx(80.0)
+        assert modifiers == []
 
     def test_rekor_identity_change_adds_bonus(self):
         from chainwatch.analyzer.aggregator import _apply_feed_modifiers
@@ -250,5 +283,25 @@ class TestAggregator:
                 signing_identity_changed=True,
             ),
         ]
-        result = _apply_feed_modifiers(30.0, feeds)
+        result, modifiers = _apply_feed_modifiers(30.0, feeds)
         assert result == pytest.approx(40.0)
+        assert [m.rule for m in modifiers] == ["rekor_identity_changed"]
+
+    def test_build_report_persists_base_score_and_modifiers(self):
+        from chainwatch.analyzer.aggregator import build_report
+        dims = _make_dimensions()  # base = 1.0*.25 + .5*.25 + .5*.15 = 4.5
+        feeds = [
+            FeedResult(source="osv", status=FeedStatus.malicious, details="MAL"),
+            FeedResult(source="rekor", status=FeedStatus.no_data, details=""),
+            FeedResult(source="scorecard", status=FeedStatus.no_data, details=""),
+        ]
+        report = build_report(
+            package="evil", ecosystem=Ecosystem.npm,
+            from_version="1.0.0", to_version="1.0.1",
+            from_sha256="a", to_sha256="b",
+            diff_summary=DiffSummary(), dimensions=dims, feed_results=feeds,
+            llm_summary="s", llm_model="m",
+        )
+        assert report.llm_base_score == pytest.approx(4.5)
+        assert report.risk_score == pytest.approx(55.0)  # malicious floor
+        assert [m.rule for m in report.score_modifiers] == ["malicious_floor"]

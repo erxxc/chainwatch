@@ -14,6 +14,10 @@ build/
 venv/
 ENV/
 
+# Offline install artifacts (kept local; commit a lockfile instead)
+wheelhouse/
+.pip-cache/
+
 # uv
 uv.lock          # committed — but listed here so editors don't flag it
 .python-version  # committed

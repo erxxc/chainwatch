@@ -22,7 +22,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-SCHEMA_VERSION = "0.1.0"
+SCHEMA_VERSION = "0.2.0"
 
 
 # ── Enumerations ──────────────────────────────────────────────────────────────
@@ -89,6 +89,15 @@ class RiskDimension(BaseModel):
     score: float = Field(ge=0.0, le=10.0, description="LLM-assigned score, 0–10")
     weight: float = Field(ge=0.0, le=1.0, description="Aggregator weight applied to this dimension")
     reasoning: str = Field(description="LLM-provided explanation for the score")
+    confidence: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "LLM self-reported confidence in this dimension's score, 0.0–1.0. "
+            "Optional — None for reports produced before the field existed."
+        ),
+    )
 
     @property
     def weighted_contribution(self) -> float:
@@ -222,6 +231,30 @@ class DiffSummary(BaseModel):
     )
 
 
+# ── Score Modifiers ───────────────────────────────────────────────────────────
+
+
+class ScoreModifier(BaseModel):
+    """
+    A single feed-driven adjustment applied to the LLM base score.
+
+    Recording every modifier makes the composite score decomposable after the
+    fact:  ``llm_base_score + sum(m.delta for m in score_modifiers)`` equals the
+    raw composite before it is clamped to [0, 100].  This closes the audit-trail
+    gap the dataset FINDINGS flagged — a saved report now explains exactly how it
+    moved from the LLM score to the final ``risk_score``.
+    """
+
+    source: str = Field(description="Feed or component that triggered it, e.g. 'osv'")
+    rule: str = Field(
+        description="Modifier rule id, e.g. 'malicious_floor', 'scorecard_good'",
+    )
+    delta: float = Field(
+        description="Signed points this modifier contributed to the composite score",
+    )
+    note: str = Field(description="Human-readable explanation of why it applied")
+
+
 # ── Top-level Report ──────────────────────────────────────────────────────────
 
 
@@ -256,6 +289,15 @@ class RiskReport(BaseModel):
         description="Composite 0–100 risk score from the aggregator",
     )
     severity: Severity
+    llm_base_score: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=100.0,
+        description=(
+            "Composite 0–100 score from the LLM dimensions alone, before feed "
+            "modifiers. None for reports produced before the field existed."
+        ),
+    )
 
     # ── Per-dimension LLM scores ─────────────────────────────────────────────
     dimensions: list[RiskDimension] = Field(
@@ -265,6 +307,12 @@ class RiskReport(BaseModel):
     # ── Feed results ─────────────────────────────────────────────────────────
     feed_results: list[FeedResult] = Field(
         description="One entry per feed: osv, rekor, scorecard",
+    )
+
+    # ── Score decomposition ──────────────────────────────────────────────────
+    score_modifiers: list[ScoreModifier] = Field(
+        default_factory=list,
+        description="Feed-driven adjustments applied to llm_base_score to reach risk_score",
     )
 
     # ── Diff summary ─────────────────────────────────────────────────────────
