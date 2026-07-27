@@ -39,8 +39,8 @@ from chainwatch.config import get_settings
 from chainwatch.fetcher.archive import (
     configured_archive_hosts,
     download_with_limit,
+    extract_tar_safely,
     host_from_url,
-    validate_tar_members,
 )
 
 log = logging.getLogger(__name__)
@@ -289,8 +289,7 @@ def _extract_npm_tarball(data: bytes, dest: Path) -> Path:
     """
     buf = io.BytesIO(data)
     with tarfile.open(fileobj=buf, mode="r:gz") as tar:
-        members = validate_tar_members(tar.getmembers(), label="npm tarball")
-        tar.extractall(path=dest, members=members, filter="data")
+        extract_tar_safely(tar, str(dest), label="npm tarball")
 
     # npm tarballs always contain a top-level "package/" directory
     package_dir = dest / "package"
