@@ -189,16 +189,28 @@ def scan(ctx: click.Context, lockfile: Path) -> None:
 @click.pass_context
 def report(ctx: click.Context, report_file: Path) -> None:
     """
-    [STUB] Re-render a saved report JSON in human-readable format.
+    Re-render a saved report JSON in human-readable (or --json) format.
 
-    Useful for reviewing dataset reports without re-running the pipeline.
+    Loads and validates a report against the current schema, then renders it
+    with the same output path as `diff`. Handy for reviewing dataset reports
+    without re-running the pipeline (and no API key required).
 
-    Not yet implemented — Day 4 scope.
+    EXIT CODES:
+      0 — Report loaded and rendered
+      2 — File could not be read or did not validate against the schema
     """
-    _err_console.print(
-        "[yellow]report[/yellow] subcommand is not yet implemented."
-    )
-    sys.exit(2)
+    json_mode: bool = ctx.obj["json_mode"]
+    output: Path | None = ctx.obj["output"]
+
+    from chainwatch.output import emit_error, emit_report
+
+    try:
+        loaded = RiskReport.model_validate_json(report_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        emit_error(f"Could not load report {report_file}: {exc}", json_mode=json_mode)
+        sys.exit(2)
+
+    emit_report(loaded, json_mode=json_mode, output_file=output)
 
 
 # ── Pipeline coroutine ────────────────────────────────────────────────────────

@@ -138,3 +138,61 @@ class TestSmoke:
         assert result.exit_code == 0, result.output
         data = json.loads(result.output.strip())
         assert data["ecosystem"] == "pypi"
+
+
+class TestReportSubcommand:
+    """The `report` subcommand re-renders a saved report JSON (no network/API)."""
+
+    @staticmethod
+    def _sample_report_json() -> str:
+        from chainwatch.models import (
+            DIMENSIONS,
+            DiffSummary,
+            Ecosystem,
+            FeedResult,
+            FeedStatus,
+            RiskDimension,
+            RiskReport,
+            Severity,
+        )
+
+        dims = [
+            RiskDimension(
+                name=d["name"], label=d["label"], score=0.0,
+                weight=d["weight"], reasoning="none",
+            )
+            for d in DIMENSIONS
+        ]
+        feeds = [
+            FeedResult(source=s, status=FeedStatus.no_data, details="")
+            for s in ("osv", "rekor", "scorecard")
+        ]
+        return RiskReport(
+            ecosystem=Ecosystem.npm, package="lodash",
+            from_version="1.0.0", to_version="1.0.1",
+            risk_score=0.0, severity=Severity.LOW, llm_base_score=0.0,
+            dimensions=dims, feed_results=feeds, diff_summary=DiffSummary(),
+            llm_model="claude-sonnet-4-6", llm_summary="Rendered from a saved report.",
+        ).model_dump_json()
+
+    def test_report_rerenders_json(self, tmp_path):
+        path = tmp_path / "r.json"
+        path.write_text(self._sample_report_json())
+        result = CliRunner().invoke(cli, ["--json", "report", str(path)])
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output.strip())
+        assert data["package"] == "lodash"
+        assert data["llm_base_score"] == 0.0
+
+    def test_report_human_mode(self, tmp_path):
+        path = tmp_path / "r.json"
+        path.write_text(self._sample_report_json())
+        result = CliRunner().invoke(cli, ["report", str(path)])
+        assert result.exit_code == 0, result.output
+        assert "lodash" in result.output
+
+    def test_report_invalid_json_exits_2(self, tmp_path):
+        path = tmp_path / "bad.json"
+        path.write_text("{ not valid report }")
+        result = CliRunner().invoke(cli, ["report", str(path)])
+        assert result.exit_code == 2
