@@ -63,18 +63,42 @@ chainwatch diff npm lodash 4.17.20 4.17.21 --threshold 50
 
 # Skip feed lookups (faster, offline-friendly)
 chainwatch diff npm lodash 4.17.20 4.17.21 --no-feeds
+
+# Scan a lockfile: diff every pinned dependency against its predecessor
+# ("was the bump that put this exact version in my lockfile itself
+# suspicious?"). Supports package-lock.json (npm) and requirements.txt
+# (PyPI, exact `==` pins only) — yarn.lock is not yet supported.
+chainwatch scan package-lock.json
+chainwatch scan requirements.txt --threshold 50   # CI mode
+chainwatch scan package-lock.json --limit 0        # no cap (default: 25 deps)
+
+# Re-render a saved report without re-running the pipeline
+chainwatch report dataset/malicious/event-stream/report-3.3.4-to-3.3.5.json
 ```
 
 ## Ground Truth Corpus
 
-| Package | Versions | Attack Type | Expected Score |
-|---|---|---|---|
-| event-stream | 3.3.4 → 3.3.5 | Maintainer handoff, crypto theft | HIGH–CRITICAL |
-| ua-parser-js | 0.7.28 → 0.7.29 | Account compromise, cryptominer | HIGH–CRITICAL |
-| colors | 1.4.0 → 1.4.1 | Protest-ware, infinite loop | MEDIUM–HIGH |
-| node-ipc | 10.1.0 → 10.1.1 | Protest-ware, destructive payload | HIGH–CRITICAL |
+Four historical incidents, each with a `SOURCING.md` (why these versions),
+`FINDINGS.md` (per-pair analysis), and real pipeline-run reports. In three
+of the four, the actual malicious release was unpublished from npm before
+this project could diff it at the registry level — see each `SOURCING.md`
+for what was recovered from git history / CDN archives / public writeups
+instead (`evidence/` in each directory), and each `FINDINGS.md` for what the
+available registry-diffable pairs actually scored.
 
-The `dataset/` directory contains full reports for all analysed packages, both malicious and benign, enabling reproducible evaluation.
+| Package | Pair(s) run | Attack type | Registry-diffable? | Actual result |
+|---|---|---|---|---|
+| event-stream | 3.3.4→3.3.5, 3.3.5→4.0.0 | Maintainer handoff, crypto theft (2018) | No — `3.3.6` unpublished | LOW (benign-adjacent control) |
+| ua-parser-js | 0.7.28→0.7.30, 0.7.30→0.7.31 | Account compromise, cryptominer (2021) | No — malicious versions unpublished | LOW (benign-adjacent control) |
+| colors | 1.3.3→1.4.0 | Maintainer protest-ware, infinite loop (2022) | No — sabotage never republished | LOW (benign-adjacent control) |
+| node-ipc | 10.1.0→11.0.0 | Maintainer protest-ware, destructive wiper (2022) | **Yes** — compromised `peacenotwar` dep still on registry | LOW, 29.5/100 — 0.5 points under the MEDIUM threshold, despite the LLM correctly naming the incident with high confidence |
+
+`node-ipc` is the one incident where a real attack diff was actually run
+through the pipeline, not just an adjacent benign pair — and the result
+(correct identification, miscalibrated severity bucket) is the corpus's
+most significant finding so far. A false-positive baseline (4 benign pairs,
+zero severity-level false positives) lives in `dataset/benign/`. Full
+detail, raw JSON reports, and reproduction commands: `dataset/README.md`.
 
 ## Development
 

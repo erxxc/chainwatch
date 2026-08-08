@@ -393,3 +393,35 @@ class RiskReport(BaseModel):
             if feed.source == "osv":
                 return any(aid.startswith("MAL-") for aid in feed.advisory_ids)
         return False
+
+
+# ── Scan Results ─────────────────────────────────────────────────────────────
+
+
+class ScanEntry(BaseModel):
+    """
+    One row of a ``chainwatch scan`` run: either a completed diff report or
+    a per-package failure.
+
+    A lockfile can name dozens of packages; one of them being unreachable
+    (deleted from the registry, a transient network error, no earlier
+    version to diff against, ...) must not abort the whole scan — see
+    ``chainwatch.scanner.scan_dependencies``. Exactly one of ``report`` /
+    ``error`` is set.
+    """
+
+    package: str = Field(description="Package name as found in the lockfile")
+    from_version: str | None = Field(
+        default=None,
+        description="Version diffed against — the one published immediately "
+        "before to_version. None if no diff was attempted.",
+    )
+    to_version: str = Field(description="The version pinned in the lockfile")
+    report: RiskReport | None = Field(
+        default=None,
+        description="The full risk report, or None if this entry failed",
+    )
+    error: str | None = Field(
+        default=None,
+        description="Human-readable failure reason, or None on success",
+    )

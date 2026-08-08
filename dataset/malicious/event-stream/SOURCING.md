@@ -13,25 +13,33 @@ Attack timeline:
 
 - `event-stream@3.3.5` published 2018-08-09 by Dominic Tarr — last known-clean release.
 - `event-stream@3.3.6` published 2018-09-09 by right9ctrl — added `flatmap-stream` dep.
-- `flatmap-stream@0.1.1` published 2018-09-09 by right9ctrl — benign-looking placeholder.
-- `flatmap-stream@0.1.2` published 2018-09-09 by right9ctrl — contained malicious payload.
+- `flatmap-stream@0.1.1` published 2018-09-09 by right9ctrl — carries the
+  bootstrap/decrypt-loader stage (see `evidence/`); **not** a benign
+  placeholder, see the correction note below.
+- `flatmap-stream@0.1.2` published 2018-09-09 by right9ctrl — activated/supplied
+  the payload the `0.1.1` loader decrypts and runs.
 - Incident disclosed publicly 2018-11-20 (npm advisory, GitHub issue #116).
 - npm unpublished `event-stream@3.3.6` and both `flatmap-stream` versions shortly after.
 
 ## Availability of the attack artifacts
 
-| version | npm registry | Wayback `.tgz` | ossf/malicious-packages | Datadog dataset |
+| version | npm registry | unpkg/jsDelivr (via Wayback) | ossf/malicious-packages | Datadog dataset |
 |---|---|---|---|---|
 | `event-stream@3.3.4` | available | n/a | — | — |
 | `event-stream@3.3.5` | available | n/a | — | — |
-| `event-stream@3.3.6` | **unpublished** | 404 on archived tarball URL | advisory JSON only | not present |
+| `event-stream@3.3.6` | **unpublished** | no capture exists at any CDN | metadata only, confirmed via direct API check | 404, confirmed via direct API check |
 | `event-stream@4.0.0` | available (post-incident) | n/a | — | — |
-| `flatmap-stream@0.1.1` | **unpublished** | not checked (Wayback rarely caches `.tgz`) | advisory JSON only | not present |
-| `flatmap-stream@0.1.2` | **unpublished** | not checked | advisory `MAL-2025-20690` (metadata only) | not present |
+| `flatmap-stream@0.1.1` | **unpublished** | **recovered** — cached by unpkg before takedown, still in Wayback | metadata only, confirmed via direct API check | 404, confirmed via direct API check |
+| `flatmap-stream@0.1.2` | **unpublished** | no capture exists at any CDN | metadata only, confirmed via direct API check | 404, confirmed via direct API check |
 
-The malicious artifacts are **not recoverable from any of the standard public
-sources we checked**. The OSV-format advisory JSON in `ossf/malicious-packages`
-records the existence of the incident but does not preserve the package contents.
+`event-stream@3.3.6` and `flatmap-stream@0.1.2` are **not recoverable as
+tarballs** from any source checked. `flatmap-stream@0.1.1` *is* recoverable —
+see `evidence/` for the actual file plus a deobfuscated reconstruction of the
+full payload chain (sourced from `es-incident/attack-data`, a paper's
+companion artifact repo, cross-validated against the recovered `0.1.1`).
+`ossf/malicious-packages` was re-checked directly (not just inferred from its
+advisory JSON, which was the earlier basis for this table) and confirmed to
+store OSV metadata only, no package contents, by design.
 
 ## Research finding
 
@@ -68,15 +76,36 @@ adjacent benign pairs that *are* available:
 
 Findings from these runs are in `FINDINGS.md`.
 
-## Future work
+## Recovered evidence (2026-08-07)
 
-If the project requires the actual attack diff, possible paths:
+`evidence/` now holds the actual `flatmap-stream@0.1.1` file (recovered from
+a Wayback Machine capture of unpkg's CDN cache, predating npm's takedown) plus
+a full deobfuscated reconstruction of the three-stage payload chain — bootstrap
+decrypt-loader, the Copay build-time ReedSolomonDecoder.js injector, and the
+RSA-encrypting credential harvester that exfiltrates to `copayapi.host` /
+`111.90.151.134` — sourced from `es-incident/attack-data`, the companion
+repository to a published paper analysing this exact incident. The `0.1.1`
+recovery and the paper's copy were independently cross-validated
+byte-for-byte. See `evidence/README.md` for full provenance and per-file hashes.
 
-- Contact npm Inc. directly — npm retains internal copies of unpublished
-  packages for legal/audit purposes and may release them for security research
-  under agreement.
-- Search older Docker images, university dependency caches, or `node_modules`
-  snapshots from late-2018 builds that pinned `event-stream@3.3.6`.
-- Reconstruct the payload from public deobfuscation writeups (Snyk, npm,
-  several blog posts) — but the result is no longer a real-world artifact and
-  weakens the research framing.
+This corrects the `flatmap-stream@0.1.1` "benign-looking placeholder"
+characterisation above — it isn't benign, it's the bootstrap stage.
+
+This is real payload code, not a full registry tarball — the composed
+`event-stream@3.3.6` / `flatmap-stream@0.1.2` packages (with valid
+`package.json`, complete `test/data` ciphertext resolved, etc.) are still not
+reconstructable, and `test-data.js`'s two AES-256 blobs remain encrypted
+(the key only resolves inside a Copay release build). Sufficient for citing
+and statically describing the attack; not sufficient to run through
+chainwatch's registry-fetch pipeline.
+
+## Still missing / future work
+
+- `event-stream@3.3.6` itself — even just the one-line `package.json` diff
+  adding the `flatmap-stream` dependency — was never captured by unpkg,
+  jsDelivr, or Wayback's tarball crawl (confirmed via direct CDX lookups).
+- `flatmap-stream@0.1.2`'s own file diff versus `0.1.1` (unpkg never
+  successfully served any file from `0.1.2`, per the archived crawl attempts).
+- The two AES-256 ciphertext blobs in `test-data.js` decrypted to plaintext.
+- Contacting npm Inc. directly (out of scope for this pass — the standard
+  public-source options above were exhausted first, per project direction).

@@ -4,6 +4,14 @@ Two version pairs were run on 2026-05-23 with `claude-sonnet-4-6` as the
 analyser model. See `SOURCING.md` for why the actual malicious releases
 (`0.7.29` / `0.8.0` / `1.0.0`) could not be analysed.
 
+**Update 2026-08-07:** the malicious `preinstall.js`/`.sh`/`.bat` scripts have
+since been reconstructed from public writeups — see `SOURCING.md`'s
+"Recovered evidence" section and `evidence/`. This is reconstructed payload
+code for citation/static reference, not a registry tarball (npm never
+retained one, and no CDN cached it), so it hasn't been run through
+chainwatch's pipeline and the pairs below are still the only pipeline-run
+results in this corpus.
+
 Redaction note: report JSON timestamps are normalized to
 `2026-05-23T00:00:00Z` so the corpus records the run date without preserving
 minute-level local execution timing.

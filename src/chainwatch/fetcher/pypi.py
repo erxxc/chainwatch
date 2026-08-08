@@ -125,7 +125,56 @@ async def fetch_package_versions(
     )
 
 
+async def fetch_version_history(
+    client: httpx.AsyncClient,
+    package: str,
+) -> list[str]:
+    """
+    Return every published version of a PyPI package, ordered oldest-first
+    by actual upload time. See ``npm.fetch_version_history`` for why
+    publish-time order — not semver or dict order — is what's needed here.
+
+    Releases with an empty file list (fully yanked, nothing ever uploaded)
+    are skipped since there's no ``upload_time_iso_8601`` to sort by.
+    """
+    settings = get_settings()
+    data = await _fetch_project_metadata(client, settings.pypi_registry, package)
+
+    releases: dict[str, list[dict[str, Any]]] = data.get("releases", {})
+    dated: list[tuple[str, str]] = []
+    for version, files in releases.items():
+        upload_times = [f["upload_time_iso_8601"] for f in files if f.get("upload_time_iso_8601")]
+        if upload_times:
+            dated.append((version, min(upload_times)))
+    dated.sort(key=lambda pair: pair[1])
+    return [v for v, _ in dated]
+
+
 # ── Internal helpers ──────────────────────────────────────────────────────────
+
+
+async def _fetch_project_metadata(
+    client: httpx.AsyncClient,
+    registry: str,
+    package: str,
+) -> dict[str, Any]:
+    """Fetch whole-project metadata (all releases) from PyPI — no version pin."""
+    url = f"{registry}/{package}/json"
+    settings = get_settings()
+
+    for attempt in range(settings.max_retries + 1):
+        resp = await client.get(url)
+        if resp.status_code == 429 and attempt < settings.max_retries:
+            wait = 2 ** attempt
+            log.warning("Rate limited by PyPI — retrying in %ds", wait)
+            await asyncio.sleep(wait)
+            continue
+        if resp.status_code == 404:
+            raise ValueError(f"Package {package} not found on PyPI")
+        resp.raise_for_status()
+        return resp.json()  # type: ignore[no-any-return]
+
+    raise RuntimeError(f"Exhausted retries fetching PyPI metadata for {package}")
 
 
 async def _fetch_version_metadata(

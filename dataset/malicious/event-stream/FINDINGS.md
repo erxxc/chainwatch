@@ -4,6 +4,13 @@ Two version pairs were run on 2026-05-23 with `claude-sonnet-4-6` as the
 analyser model. See `SOURCING.md` for why the actual malicious release
 (`3.3.6`) and the payload package (`flatmap-stream`) could not be analysed.
 
+**Update 2026-08-07:** the actual `flatmap-stream@0.1.1` file and a full
+deobfuscated reconstruction of the payload chain have since been recovered —
+see `SOURCING.md`'s "Recovered evidence" section and `evidence/`. This is
+real payload code for citation/static reference, not a registry tarball, so
+it hasn't been run through chainwatch's pipeline and the pairs below are
+still the only pipeline-run results in this corpus.
+
 Redaction note: report JSON timestamps are normalized to
 `2026-05-23T00:00:00Z` so the corpus records the run date without preserving
 minute-level local execution timing.

@@ -23,10 +23,18 @@ OSV client:
   - Other advisory IDs (GHSA-*, CVE-*) as FeedStatus.suspicious
 
 Rekor client:
-  - Hash-based search against Rekor transparency log
-  - POST rekor.sigstore.dev/api/v1/index/retrieve with SHA256
-  - Extract signing identity from returned entries
-  - Flag: new/unknown identity = suspicious, no attestation = no_data
+  - npm packages only. Reads the registry's Sigstore provenance-attestation
+    bundle — GET {npm_registry}/-/npm/v1/attestations/{package}@{version} —
+    and parses the Fulcio-issued signing certificate to recover the identity
+    that published the release (typically a GitHub Actions workflow ref).
+  - Compares the from_version identity against the to_version identity: a
+    changed identity is a maintainer-hijack / stolen-token signal, flagged
+    FeedStatus.suspicious. No attestation on either side (packages predating
+    npm provenance, or PyPI — PEP 740 support not implemented) = no_data.
+  - This reads the identity the certificate *asserts*; it does not perform
+    full Sigstore bundle verification (Rekor inclusion proof, Fulcio chain
+    trust, cert validity window). Treat it as a detection heuristic, not a
+    cryptographic guarantee.
 
 Scorecard client:
   - GET api.securityscorecards.dev/projects/github.com/{owner}/{repo}
@@ -37,10 +45,14 @@ Scorecard client:
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import logging
 from typing import Any
+from urllib.parse import quote
 
 import httpx
+from cryptography import x509
 
 from chainwatch.config import get_settings
 from chainwatch.models import Ecosystem, FeedResult, FeedStatus
@@ -57,7 +69,6 @@ async def run_all_feeds(
     ecosystem: Ecosystem,
     from_version: str,
     to_version: str,
-    to_version_sha256: str,
 ) -> list[FeedResult]:
     """
     Run all three feed clients concurrently and return their results.
@@ -69,16 +80,16 @@ async def run_all_feeds(
         client:             Shared httpx.AsyncClient
         package:            Package name
         ecosystem:          npm or pypi
-        from_version:       Baseline version (for Rekor comparison)
+        from_version:       Baseline version (compared against to_version for
+                             the Rekor signing-identity check)
         to_version:         Target version
-        to_version_sha256:  SHA256 of the to_version tarball
 
     Returns:
         List of three FeedResult objects: [osv, rekor, scorecard]
     """
     results = await asyncio.gather(
         _query_osv(client, package, ecosystem, to_version),
-        _query_rekor(client, package, to_version, to_version_sha256),
+        _query_rekor(client, package, ecosystem, from_version, to_version),
         _query_scorecard(client, package, ecosystem),
         return_exceptions=True,
     )
@@ -177,118 +188,173 @@ async def _query_osv(
 async def _query_rekor(
     client: httpx.AsyncClient,
     package: str,
+    ecosystem: Ecosystem,
+    from_version: str,
     to_version: str,
-    to_sha256: str,
 ) -> FeedResult:
     """
-    Query the Rekor transparency log for attestation records.
+    Compare Sigstore signing identities between from_version and to_version.
 
-    Strategy: hash-based lookup.
-    1. POST rekor.sigstore.dev/api/v1/index/retrieve
-       with {"hash": "sha256:<hex>"}
-    2. If entries found, GET each entry to extract signing identity
-    3. Flag: no attestation = no_data, attestation found = clean
+    npm-only for now: packages published with ``npm publish --provenance``
+    (npm 9.5+, 2023) carry a Sigstore bundle at the registry's attestations
+    endpoint. The bundle's Fulcio certificate records *who* published the
+    release — typically a GitHub Actions workflow ref (e.g.
+    ``https://github.com/{owner}/{repo}/.github/workflows/release.yml@refs/heads/main``).
+    A release published from a different identity than its predecessor is a
+    maintainer-hijack / stolen-token signal — exactly the pattern behind the
+    event-stream and ua-parser-js incidents this tool's corpus is built on.
 
-    Signing identity change detection requires comparing with from_version,
-    which would need a second lookup. For now, we report whether any
-    attestation exists for the to_version.
+    PyPI attestations (PEP 740) are served over the Simple API, not a JSON
+    endpoint, and are not implemented here — this returns ``no_data`` for
+    PyPI rather than guessing at an unimplemented protocol.
+
+    Packages that predate provenance (essentially anything published before
+    2023) will legitimately have no attestation on either side and report
+    ``no_data`` — that is a correct "we cannot tell" result, not a bug.
     """
-    log.debug(
-        "Rekor: querying attestation for %s %s (sha256:%s…)",
-        package, to_version, to_sha256[:12],
-    )
+    if ecosystem != Ecosystem.npm:
+        return FeedResult(
+            source="rekor",
+            status=FeedStatus.no_data,
+            details=(
+                "Sigstore attestation lookup is npm-only "
+                "(PyPI PEP 740 support not implemented)."
+            ),
+        )
+
+    log.debug("Rekor: comparing signing identity for %s %s → %s", package, from_version, to_version)
     settings = get_settings()
 
     try:
-        resp = await _post_with_retry(
-            client,
-            f"{settings.rekor_api}/api/v1/index/retrieve",
-            json_data={"hash": f"sha256:{to_sha256}"},
+        from_identity, _ = await _fetch_npm_signing_identity(
+            client, settings, package, from_version
+        )
+        to_identity, to_url = await _fetch_npm_signing_identity(
+            client, settings, package, to_version
+        )
+    except Exception as exc:
+        log.warning("Rekor/npm attestation query failed: %s", exc)
+        return FeedResult(
+            source="rekor",
+            status=FeedStatus.no_data,
+            details=f"Attestation lookup failed: {exc}",
         )
 
-        # Response is a JSON array of entry UUIDs
-        entry_uuids: list[str] = resp.json()
-
-        if not entry_uuids:
-            return FeedResult(
-                source="rekor",
-                status=FeedStatus.no_data,
-                details=(
-                    f"No Rekor attestation found for {package}@{to_version}."
-                ),
-                url=f"https://search.sigstore.dev/?hash={to_sha256}",
-                signing_identity=None,
-                signing_identity_changed=None,
-            )
-
-        # Fetch the first entry to get signing identity
-        first_uuid = entry_uuids[0]
-        signing_identity = await _extract_rekor_identity(
-            client, settings.rekor_api, first_uuid
+    if to_identity is None:
+        return FeedResult(
+            source="rekor",
+            status=FeedStatus.no_data,
+            details=f"No Sigstore provenance attestation found for {package}@{to_version}.",
         )
 
+    if from_identity is None:
         return FeedResult(
             source="rekor",
             status=FeedStatus.clean,
             details=(
-                f"Rekor attestation found ({len(entry_uuids)} entries). "
-                f"Signing identity: {signing_identity or 'unknown'}"
+                f"Signing identity: {to_identity}. "
+                f"No attestation for {package}@{from_version} to compare against."
             ),
-            url=f"https://search.sigstore.dev/?hash={to_sha256}",
-            signing_identity=signing_identity,
-            signing_identity_changed=None,  # requires from_version lookup
+            url=to_url,
+            signing_identity=to_identity,
+            signing_identity_changed=None,
         )
+
+    changed = from_identity != to_identity
+    details = f"Signing identity: {to_identity}."
+    details += f" Changed from {from_identity}." if changed else " Matches previous release."
+
+    return FeedResult(
+        source="rekor",
+        status=FeedStatus.suspicious if changed else FeedStatus.clean,
+        details=details,
+        url=to_url,
+        signing_identity=to_identity,
+        signing_identity_changed=changed,
+    )
+
+
+async def _fetch_npm_signing_identity(
+    client: httpx.AsyncClient,
+    settings: Any,
+    package: str,
+    version: str,
+) -> tuple[str | None, str | None]:
+    """
+    Fetch and parse the Sigstore signing identity for one npm package version.
+
+    Returns (identity, human_url), both None if no attestation exists.
+    """
+    url = f"{settings.npm_registry}/-/npm/v1/attestations/{quote(package, safe='@')}@{version}"
+    try:
+        resp = await _get_with_retry(client, url)
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 404:
-            return FeedResult(
-                source="rekor",
-                status=FeedStatus.no_data,
-                details=(
-                    f"No Rekor entries found for {package}@{to_version}."
-                ),
-                url=f"https://search.sigstore.dev/?hash={to_sha256}",
-            )
-        log.warning("Rekor query failed: %s", exc)
-        return FeedResult(
-            source="rekor",
-            status=FeedStatus.no_data,
-            details=f"Rekor query failed: {exc}",
+            return None, None
+        raise
+
+    data: dict[str, Any] = resp.json()
+    attestations: list[dict[str, Any]] = data.get("attestations") or []
+
+    # Prefer the SLSA provenance attestation; fall back to whichever one has
+    # a certificate (the npm publish attestation carries the same cert).
+    attestations.sort(key=lambda a: "slsa.dev/provenance" not in a.get("predicateType", ""))
+
+    for attestation in attestations:
+        cert_der = _attestation_certificate_der(attestation)
+        if cert_der is None:
+            continue
+        identity = _identity_from_certificate(cert_der)
+        if identity is None:
+            continue
+        human_url = _rekor_search_url(attestation) or (
+            f"https://www.npmjs.com/package/{package}/v/{version}#provenance"
         )
-    except Exception as exc:
-        log.warning("Rekor query failed: %s", exc)
-        return FeedResult(
-            source="rekor",
-            status=FeedStatus.no_data,
-            details=f"Rekor query failed: {exc}",
-        )
+        return identity, human_url
+
+    return None, None
 
 
-async def _extract_rekor_identity(
-    client: httpx.AsyncClient,
-    rekor_api: str,
-    uuid: str,
-) -> str | None:
+def _attestation_certificate_der(attestation: dict[str, Any]) -> bytes | None:
+    """Extract the raw DER bytes of the Fulcio signing certificate, if present."""
+    try:
+        raw_b64 = attestation["bundle"]["verificationMaterial"]["certificate"]["rawBytes"]
+        return base64.b64decode(raw_b64)
+    except (KeyError, TypeError, binascii.Error):
+        return None
+
+
+def _identity_from_certificate(cert_der: bytes) -> str | None:
     """
-    Fetch a Rekor log entry and extract the signing identity.
+    Parse a Fulcio-issued X.509 certificate and return its signing identity.
 
-    The signing identity is typically an email or OIDC URI embedded
-    in the certificate's Subject Alternative Name (SAN).
+    Fulcio certificates encode the verified OIDC identity as a Subject
+    Alternative Name — a URI (CI/CD workflow identities, e.g. GitHub Actions)
+    or an RFC822 email (interactive `npm login` identities). This reads the
+    identity the certificate *asserts*; it does not verify the certificate
+    chain, validity window, or Rekor inclusion proof.
     """
     try:
-        resp = await _get_with_retry(
-            client,
-            f"{rekor_api}/api/v1/log/entries/{uuid}",
-        )
-        data: dict[str, Any] = resp.json()
-        # Rekor entries are wrapped in a dict keyed by UUID
-        for _entry_id, entry in data.items():
-            body = entry.get("body", "")
-            # The body is base64-encoded; for now, just report presence
-            if body:
-                return f"entry:{uuid[:16]}…"
+        cert = x509.load_der_x509_certificate(cert_der)
+        san = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
+    except (ValueError, x509.ExtensionNotFound):
         return None
-    except Exception as exc:
-        log.debug("Failed to extract Rekor identity: %s", exc)
+
+    uris = san.get_values_for_type(x509.UniformResourceIdentifier)
+    if uris:
+        return uris[0]
+    emails = san.get_values_for_type(x509.RFC822Name)
+    if emails:
+        return emails[0]
+    return None
+
+
+def _rekor_search_url(attestation: dict[str, Any]) -> str | None:
+    """Build a human-viewable search.sigstore.dev link from the bundle's tlog entry."""
+    try:
+        log_index = attestation["bundle"]["verificationMaterial"]["tlogEntries"][0]["logIndex"]
+        return f"https://search.sigstore.dev/?logIndex={log_index}"
+    except (KeyError, IndexError, TypeError):
         return None
 
 

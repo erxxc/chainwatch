@@ -156,6 +156,32 @@ async def fetch_package_versions(
     )
 
 
+async def fetch_version_history(
+    client: httpx.AsyncClient,
+    package: str,
+) -> list[str]:
+    """
+    Return every published version of an npm package, ordered oldest-first
+    by actual publish time.
+
+    Publish-time order, not semver or dict-insertion order: a patch to an
+    older major line can be published *after* a newer major exists, so
+    publish-time is the only ordering that correctly answers "what was live
+    immediately before this version was published" — which is what
+    ``chainwatch scan`` needs to find a diff baseline for a lockfile's
+    pinned version without a second lockfile to compare against.
+
+    Unpublished versions are excluded: the registry's ``time`` map can still
+    carry entries for versions no longer in ``versions{}}``.
+    """
+    metadata = await _fetch_metadata(client, get_settings().npm_registry, package)
+    times: dict[str, str] = metadata.get("time", {})
+    published = set(metadata.get("versions", {}).keys())
+    dated = [(v, t) for v, t in times.items() if v in published]
+    dated.sort(key=lambda pair: pair[1])
+    return [v for v, _ in dated]
+
+
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
 

@@ -13,11 +13,6 @@ The engine:
 
 The engine is a pure function over two directories — no I/O beyond reading
 files.  This makes it straightforward to test with fixture directories.
-
-Stub status: PARTIAL STUB
-  File enumeration and categorisation are real.  Unified diff generation and
-  metadata extraction have stub implementations that return plausible-looking
-  output.  These will be replaced in Day 1 Part 2.
 """
 
 from __future__ import annotations

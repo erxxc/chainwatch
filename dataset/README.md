@@ -13,10 +13,20 @@ dataset/
 │   ├── event-stream/
 │   │   ├── SOURCING.md          # provenance + why specific versions were used
 │   │   ├── FINDINGS.md          # per-pair analysis and cross-cutting notes
+│   │   ├── evidence/             # recovered payload code, not runnable via chainwatch
 │   │   └── report-<from>-to-<to>.json
-│   └── ua-parser-js/
-├── benign/              # false-positive baseline (ground truth: benign) — pending
-└── findings/            # cross-corpus write-ups (precision/recall, latency) — pending
+│   ├── ua-parser-js/            # same layout
+│   ├── colors/                  # same layout
+│   └── node-ipc/                # same layout — the one registry-diffable real attack
+├── benign/              # false-positive baseline (ground truth: benign)
+│   ├── SOURCING.md               # selection methodology for all 4 pairs
+│   ├── FINDINGS.md               # per-pair analysis and cross-cutting notes
+│   ├── husky/report-<from>-to-<to>.json
+│   ├── lodash/report-<from>-to-<to>.json
+│   ├── esbuild/report-<from>-to-<to>.json
+│   └── requests/report-<from>-to-<to>.json
+└── findings/            # cross-corpus write-ups
+    └── README.md              # precision/recall, detection gap, RQ1-4 synthesis
 ```
 
 ## Report schema (0.2.0)
@@ -75,16 +85,49 @@ records *when* a run happened without preserving minute-level local timing.
 
 ## Ground truth
 
+### Malicious (or malicious-adjacent)
+
 | Package | Pair(s) analysed | Incident | Malicious version analysable? |
 |---|---|---|---|
-| event-stream | 3.3.4→3.3.5, 3.3.5→4.0.0 | Maintainer handoff → crypto theft (2018) | No — malicious `3.3.6` unpublished |
-| ua-parser-js | 0.7.28→0.7.30, 0.7.30→0.7.31 | Account compromise → cryptominer (2021) | No — malicious `0.7.29`/`0.8.0`/`1.0.0` unpublished |
-| colors | — | Protest-ware, infinite loop | pending acquisition |
-| node-ipc | — | Protest-ware, destructive payload | pending acquisition |
+| event-stream | 3.3.4→3.3.5, 3.3.5→4.0.0 | Maintainer handoff → crypto theft (2018) | No via the registry pipeline — `3.3.6` unpublished. Payload code recovered from secondary sources, see `evidence/` |
+| ua-parser-js | 0.7.28→0.7.30, 0.7.30→0.7.31 | Account compromise → cryptominer (2021) | No via the registry pipeline — `0.7.29`/`0.8.0`/`1.0.0` unpublished. Payload code recovered from secondary sources, see `evidence/` |
+| colors | 1.3.3→1.4.0 | Maintainer protest-ware, infinite loop (2022) | No via the registry pipeline — sabotage never republished (`1.4.0` is still `latest`). Payload recovered directly from git history, see `evidence/` |
+| node-ipc | 10.1.0→11.0.0 | Maintainer protest-ware, destructive wiper (2022) | **Partially — yes.** The destructive wiper (`10.1.1`–`10.1.3`) is unpublished, but the compromised `peacenotwar` dependency is still present in `11.0.0`, which is on the registry today. This is the one incident in the corpus chainwatch can diff for real — see `node-ipc/FINDINGS.md` for the result (correctly identified by the LLM, scored 29.5/LOW — 0.5 points under the MEDIUM threshold). |
 
-A recurring finding (see the per-package `FINDINGS.md`): for the highest-profile
-npm incidents the malicious release has been unpublished from the registry, so
-registry-level diffing validates *non*-false-positive behaviour on the benign
-neighbours rather than direct detection. The precision/recall table (Figure 1 of
-the write-up) and the benign false-positive baseline are the next dataset
-deliverables.
+A recurring finding (see the per-package `FINDINGS.md`): for most of the
+highest-profile npm incidents the malicious release has been unpublished
+from the registry, so registry-level diffing only validates *non*-false-positive
+behaviour on the benign neighbours rather than direct detection. `node-ipc`
+is the exception, and its result — a correct, high-confidence LLM
+identification that still buckets to LOW — is the dataset's most important
+finding on aggregation/bucketing calibration so far.
+
+### Benign (false-positive baseline)
+
+| Package | Pair analysed | Pattern under test | Result |
+|---|---|---|---|
+| husky | 5.0.9→5.1.0 | new install hook | LOW (3.0) |
+| lodash | 4.17.20→4.17.21 | minified dist / real ReDoS fix | LOW (0.0) |
+| esbuild | 0.27.4→0.27.5 | network calls + env conditional | LOW (0.0) |
+| requests (PyPI) | 2.31.0→2.32.0 | large diff / dependency churn | LOW (2.5) |
+
+Each pair was chosen specifically because it hits a pattern that looks like
+one of the five risk dimensions on paper but is legitimate — see
+`benign/SOURCING.md` for methodology and `benign/FINDINGS.md` for full
+per-pair analysis. Zero severity-level false positives across all four.
+
+## Cross-corpus findings
+
+The precision/recall table, detection-gap analysis, and full RQ1–4 synthesis
+across all ten reports live in [`dataset/findings/README.md`](findings/README.md).
+Headline result: 0% severity-level false positives across nine benign pairs,
+but the corpus's one real attack diff (node-ipc) also scored LOW — a
+bucketing-threshold finding, not an "LLM missed it" finding. See that
+document before citing either number in isolation.
+
+## Still pending
+
+`colors` and `node-ipc` acquisition is at the "recovered evidence, not yet
+reconstructed into a runnable diff" stage (see each `evidence/README.md`) —
+widening the real-positive sample beyond n=1 is the clearest next step, per
+`findings/README.md`'s recommendations.
