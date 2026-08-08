@@ -1,20 +1,57 @@
 # node-ipc — chainwatch findings
 
-One version pair run on 2026-08-07 with `claude-sonnet-4-6`, live pipeline
-(real LLM + real feeds). See `SOURCING.md` for the incident background and
-`evidence/` for the recovered destructive-wiper payload (not present in the
-pair below — see why that matters).
+Two pairs, both live pipeline runs (real LLM + real feeds), `claude-sonnet-4-6`:
+one registry-fetched (2026-08-07), one a directory-level reconstruction of
+the actual wiper payload (also 2026-08-07 — see "Reconstructed pair" below
+and `SOURCING.md` for exactly how, and why it never became an installable
+package). See `evidence/` for the recovered payload itself.
 
 ## Summary
 
 | pair | role | risk | LLM base | feed-adjusted | OSV | Rekor | Scorecard |
 |---|---|---|---|---|---|---|---|
-| `10.1.0 → 11.0.0` | **contains the compromised `peacenotwar` dependency** | LOW | 29.5 | 29.5 | suspicious (GHSA-3mpp-xfvh-qh37) | no_data | 4.0/10 clean |
+| `10.1.0 → 11.0.0` | contains the compromised `peacenotwar` dependency (registry-fetched) | LOW | 29.5 | 29.5 | suspicious (GHSA-3mpp-xfvh-qh37) | no_data | 4.0/10 clean |
+| `10.1.0 → 10.1.1` *(reconstructed)* | **the actual destructive wiper** | **HIGH** | **69.0** | 69.0 | suspicious (GHSA-97m3-w2cp-4xx6) | no_data | 4.0/10 clean |
 
-Tarball SHA256 (verified at fetch time):
+Tarball SHA256 (verified at fetch time — `11.0.0` pair only; the
+reconstructed pair has no real tarball, see below):
 
 - `10.1.0`: `3ae711f24ce5e31b696e4228452258954b1cbc0983fdb345b0755cd9e9366a2b`
 - `11.0.0`: `24388fb7f28c167afd426b17667a2563ec6f094a7e83f3aef84d48a73b11a37b`
+
+## The reconstructed pair: 69.0/HIGH, confirming the diagnosis below
+
+Section "2" below predicted, before this was run, that reconstructing the
+actual wiper "would very plausibly score much higher... this pair likely
+*understates* what the full incident would score." That prediction is now
+confirmed with a real run, not a guess:
+
+| dimension | `11.0.0` (peacenotwar remnant) | `10.1.1` (full wiper, reconstructed) |
+|---|---|---|
+| network_calls | 2.0 | **10.0** (corpus max) |
+| obfuscation | 2.0 | **10.0** (corpus max) |
+| env_conditional | 4.0 | **9.0** |
+| install_hooks | 0.0 | 2.0 |
+| dependency_changes | **9.0** | 1.0 |
+| **llm_base_score** | 29.5 | **69.0** |
+
+The two payload tiers are structurally different attacks on the same
+dimensions the LLM is asked to score, and the LLM told them apart correctly
+without being pointed at the difference: `11.0.0` is a *dependency* whose
+own code writes a file — no network call, no encoding, so
+`dependency_changes` carries the signal. `10.1.1` is inline code that
+*makes an obfuscated geo-IP HTTP call and gates a filesystem wipe on the
+response* — `network_calls` and `obfuscation` both hit the ceiling instead.
+The free-text summary for the reconstructed pair: *"This is a confirmed,
+unambiguous malicious payload with a severity score of 10"* — the model's
+own self-rating, and this time the composite score agrees (HIGH, 69.0).
+
+**This is the corpus's clearest evidence that the `11.0.0` near-miss (below)
+is a diluted-artifact problem, not a detection-capability problem.** Given
+the complete attack, chainwatch's LLM layer rates it correctly and the
+aggregator's bucketing agrees. See `SOURCING.md` for exactly how the
+reconstruction was built (the real `10.1.0` tarball plus the exact verified
+git diff, applied as two local directories — never packaged, never served).
 
 ## The headline result: 29.5 is 0.5 points from MEDIUM
 
@@ -65,18 +102,16 @@ does, for this diff. A precision/recall table built purely from
 `severity` buckets would score this as a false negative on a genuinely
 correctly-reasoned detection.
 
-## Why this pair, not the destructive-wiper versions
+## Why the `11.0.0` pair originally ran without the wiper (now resolved above)
 
 `10.1.1`/`10.1.2`/`10.1.3` — the versions with the actual file-wiping
 payload — are unpublished and not registry-fetchable (see `SOURCING.md`).
-`11.0.0` is the closest available version that still carries the
-`peacenotwar` dependency (minus the destructive, geo-gated wiper — see
+`11.0.0` was, at the time, the closest available version that still carried
+the `peacenotwar` dependency (minus the destructive, geo-gated wiper — see
 `evidence/README.md` for exactly what was removed between `10.1.2` and
-`11.0.0`, which we did not independently diff). If the destructive versions
-were reconstructed and run through the pipeline, the `network_calls` and
-`env_conditional` dimensions would very plausibly score much higher than
-they do here, given the geo-IP HTTP call and the country-based branch —
-this pair likely *understates* what the full incident would score.
+`11.0.0`, which we did not independently diff). The prediction made here —
+that a reconstructed wiper pair would score meaningfully higher — is now
+confirmed with a real run; see the reconstructed-pair section above.
 
 ## Cross-cutting observations
 

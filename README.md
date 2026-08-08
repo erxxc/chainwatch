@@ -91,14 +91,19 @@ available registry-diffable pairs actually scored.
 | event-stream | 3.3.4→3.3.5, 3.3.5→4.0.0 | Maintainer handoff, crypto theft (2018) | No — `3.3.6` unpublished | LOW (benign-adjacent control) |
 | ua-parser-js | 0.7.28→0.7.30, 0.7.30→0.7.31 | Account compromise, cryptominer (2021) | No — malicious versions unpublished | LOW (benign-adjacent control) |
 | colors | 1.3.3→1.4.0 | Maintainer protest-ware, infinite loop (2022) | No — sabotage never republished | LOW (benign-adjacent control) |
-| node-ipc | 10.1.0→11.0.0 | Maintainer protest-ware, destructive wiper (2022) | **Yes** — compromised `peacenotwar` dep still on registry | LOW, 29.5/100 — 0.5 points under the MEDIUM threshold, despite the LLM correctly naming the incident with high confidence |
+| node-ipc | 10.1.0→11.0.0 | Maintainer protest-ware, destructive wiper (2022) | **Yes** — compromised `peacenotwar` dep still on registry | LOW, 29.5/100 — 0.5 points under MEDIUM |
+| node-ipc | 10.1.0→10.1.1 *(reconstructed)* | Same incident, the complete wiper | No — unpublished; rebuilt from the exact verified git commit and diffed locally (never packaged/served) | **HIGH, 69.0/100** |
 
-`node-ipc` is the one incident where a real attack diff was actually run
-through the pipeline, not just an adjacent benign pair — and the result
-(correct identification, miscalibrated severity bucket) is the corpus's
-most significant finding so far. A false-positive baseline (4 benign pairs,
-zero severity-level false positives) lives in `dataset/benign/`. Full
-detail, raw JSON reports, and reproduction commands: `dataset/README.md`.
+`node-ipc` is the one incident with a real attack diff run through the
+pipeline — twice, once as the diluted post-remediation dependency that's
+still on the registry (LOW), once reconstructed from git as the complete
+attack (HIGH). Read together, they show the LLM correctly identifies both,
+and correctly rates the complete attack far more severely than the
+remnant — the miscalibration is in what the registry-fetch layer can see,
+not in the model's judgement. That's the corpus's most significant finding
+so far. A false-positive baseline (4 benign pairs, zero severity-level
+false positives) lives in `dataset/benign/`. Full detail, raw JSON reports,
+and reproduction commands: `dataset/README.md`.
 
 ## Development
 

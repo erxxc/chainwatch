@@ -92,15 +92,18 @@ records *when* a run happened without preserving minute-level local timing.
 | event-stream | 3.3.4→3.3.5, 3.3.5→4.0.0 | Maintainer handoff → crypto theft (2018) | No via the registry pipeline — `3.3.6` unpublished. Payload code recovered from secondary sources, see `evidence/` |
 | ua-parser-js | 0.7.28→0.7.30, 0.7.30→0.7.31 | Account compromise → cryptominer (2021) | No via the registry pipeline — `0.7.29`/`0.8.0`/`1.0.0` unpublished. Payload code recovered from secondary sources, see `evidence/` |
 | colors | 1.3.3→1.4.0 | Maintainer protest-ware, infinite loop (2022) | No via the registry pipeline — sabotage never republished (`1.4.0` is still `latest`). Payload recovered directly from git history, see `evidence/` |
-| node-ipc | 10.1.0→11.0.0 | Maintainer protest-ware, destructive wiper (2022) | **Partially — yes.** The destructive wiper (`10.1.1`–`10.1.3`) is unpublished, but the compromised `peacenotwar` dependency is still present in `11.0.0`, which is on the registry today. This is the one incident in the corpus chainwatch can diff for real — see `node-ipc/FINDINGS.md` for the result (correctly identified by the LLM, scored 29.5/LOW — 0.5 points under the MEDIUM threshold). |
+| node-ipc | 10.1.0→11.0.0 (registry) + 10.1.0→10.1.1 (reconstructed) | Maintainer protest-ware, destructive wiper (2022) | **Yes, both ways.** The compromised `peacenotwar` dependency is still present in `11.0.0` (registry-diffable today, scored 29.5/LOW). The actual destructive wiper (`10.1.1`, unpublished) was reconstructed from its exact verified git commit and run directly through the pipeline — scored **69.0/HIGH**. See `node-ipc/FINDINGS.md`. |
 
 A recurring finding (see the per-package `FINDINGS.md`): for most of the
 highest-profile npm incidents the malicious release has been unpublished
 from the registry, so registry-level diffing only validates *non*-false-positive
 behaviour on the benign neighbours rather than direct detection. `node-ipc`
-is the exception, and its result — a correct, high-confidence LLM
-identification that still buckets to LOW — is the dataset's most important
-finding on aggregation/bucketing calibration so far.
+is the exception on both counts: one pair is genuinely registry-diffable,
+and the other — the complete attack — was reconstructed and run for real.
+Together they show a correct, high-confidence LLM identification that
+buckets to LOW when the attack is diluted (post-remediation remnant) and to
+HIGH when it isn't — the dataset's most important finding on aggregation/
+bucketing calibration so far.
 
 ### Benign (false-positive baseline)
 
@@ -119,15 +122,17 @@ per-pair analysis. Zero severity-level false positives across all four.
 ## Cross-corpus findings
 
 The precision/recall table, detection-gap analysis, and full RQ1–4 synthesis
-across all ten reports live in [`dataset/findings/README.md`](findings/README.md).
+across all eleven reports live in [`dataset/findings/README.md`](findings/README.md).
 Headline result: 0% severity-level false positives across nine benign pairs,
-but the corpus's one real attack diff (node-ipc) also scored LOW — a
-bucketing-threshold finding, not an "LLM missed it" finding. See that
-document before citing either number in isolation.
+100% precision / 50% recall across node-ipc's two positive pairs — the
+diluted post-remediation remnant scored LOW, the reconstructed complete
+attack scored HIGH. See that document before citing any of these numbers
+in isolation.
 
 ## Still pending
 
-`colors` and `node-ipc` acquisition is at the "recovered evidence, not yet
-reconstructed into a runnable diff" stage (see each `evidence/README.md`) —
-widening the real-positive sample beyond n=1 is the clearest next step, per
+`colors`'s recovered evidence (see `evidence/README.md`) hasn't been run
+through the pipeline the way node-ipc's was — lower priority, since its
+payload (an infinite loop) has a much lower severity ceiling. Widening the
+real-positive sample beyond node-ipc is the clearest next step, per
 `findings/README.md`'s recommendations.

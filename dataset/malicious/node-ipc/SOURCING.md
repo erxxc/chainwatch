@@ -69,3 +69,40 @@ the closest thing in this dataset to a directly analysable attack diff.
 
 Findings — including a genuinely significant near-miss on the severity
 threshold — are in `FINDINGS.md`.
+
+## Reconstructed pair — the full destructive wiper, run for real (2026-08-07)
+
+`10.1.1` itself (the actual wiper) is unpublished and not registry-fetchable
+(see above). Its full file tree is fully recoverable, though: apply the
+exact verified commit diff (`evidence/commit-847047cf7f81-relevant.diff`) to
+the real, still-published `10.1.0` tarball, and the result is a byte-for-byte
+match for what `10.1.1` actually shipped — anyone can verify this by
+re-running the same diff against the same tarball.
+
+We did this and ran chainwatch's actual diff engine, LLM analysis, and feed
+lookups (OSV, Rekor, Scorecard — all by name/version, no tarball needed)
+directly against the reconstructed local directory pair, **never packaging
+it as an installable tarball or serving it through a registry** — the diff
+engine takes two directory paths, so the fetcher/registry layer was
+bypassed entirely rather than mocked. This keeps a real, currently-functional
+destructive payload (unlike event-stream/ua-parser-js's dead-C2 payloads,
+this one's only dependency — a live geolocation API — plausibly still works)
+from ever existing as something `npm install`-able.
+
+| pair | role | report |
+|---|---|---|
+| `10.1.0 → 10.1.1` (reconstructed) | **the actual wiper, not a remnant** | `report-10.1.0-to-10.1.1-RECONSTRUCTED.json` |
+
+**Result: 69.0/100, HIGH** — `network_calls` and `obfuscation` both scored
+10/10 (the corpus maximum on any dimension, by a wide margin), versus
+`11.0.0`'s 29.5/LOW. See `FINDINGS.md` for the full breakdown; this is the
+corpus's clearest evidence that the earlier near-miss was specifically an
+artifact of only having the diluted, wiper-removed `11.0.0` release
+available at the registry level — not a fundamental detection gap.
+
+The `report-*-RECONSTRUCTED.json` filename is deliberately distinct from the
+registry-fetched reports elsewhere in this corpus: `from_version_sha256`/
+`to_version_sha256` are `null` (there is no real tarball to hash), and the
+diff/analysis ran against local directories, not downloaded archives. Treat
+it as a validated reconstruction, not a registry-reproducible artifact —
+reproduce it via the diff file above, not via `chainwatch diff`.
