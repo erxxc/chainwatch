@@ -91,19 +91,22 @@ records *when* a run happened without preserving minute-level local timing.
 |---|---|---|---|
 | event-stream | 3.3.4→3.3.5, 3.3.5→4.0.0 | Maintainer handoff → crypto theft (2018) | No via the registry pipeline — `3.3.6` unpublished. Payload code recovered from secondary sources, see `evidence/` |
 | ua-parser-js | 0.7.28→0.7.30, 0.7.30→0.7.31 | Account compromise → cryptominer (2021) | No via the registry pipeline — `0.7.29`/`0.8.0`/`1.0.0` unpublished. Payload code recovered from secondary sources, see `evidence/` |
-| colors | 1.3.3→1.4.0 | Maintainer protest-ware, infinite loop (2022) | No via the registry pipeline — sabotage never republished (`1.4.0` is still `latest`). Payload recovered directly from git history, see `evidence/` |
+| colors | 1.3.3→1.4.0 (control) + 1.4.0→1.4.44-liberty-2 (reconstructed) | Maintainer protest-ware, infinite loop (2022) | No via the registry pipeline — sabotage never republished (`1.4.0` is still `latest`). The actual sabotage commit was reconstructed from verified git history and run directly through the pipeline — scored **7.5/LOW despite being the complete attack**. See `colors/FINDINGS.md`. |
 | node-ipc | 10.1.0→11.0.0 (registry) + 10.1.0→10.1.1 (reconstructed) | Maintainer protest-ware, destructive wiper (2022) | **Yes, both ways.** The compromised `peacenotwar` dependency is still present in `11.0.0` (registry-diffable today, scored 29.5/LOW). The actual destructive wiper (`10.1.1`, unpublished) was reconstructed from its exact verified git commit and run directly through the pipeline — scored **69.0/HIGH**. See `node-ipc/FINDINGS.md`. |
 
 A recurring finding (see the per-package `FINDINGS.md`): for most of the
 highest-profile npm incidents the malicious release has been unpublished
 from the registry, so registry-level diffing only validates *non*-false-positive
-behaviour on the benign neighbours rather than direct detection. `node-ipc`
-is the exception on both counts: one pair is genuinely registry-diffable,
-and the other — the complete attack — was reconstructed and run for real.
-Together they show a correct, high-confidence LLM identification that
-buckets to LOW when the attack is diluted (post-remediation remnant) and to
-HIGH when it isn't — the dataset's most important finding on aggregation/
-bucketing calibration so far.
+behaviour on the benign neighbours rather than direct detection. node-ipc
+and colors are the exceptions: both had their complete attack reconstructed
+from verified git history and run for real, and the two results disagree in
+an informative way. node-ipc shows a correct, high-confidence LLM
+identification that buckets to LOW when the attack is diluted and to HIGH
+when it isn't — a fetching-completeness story with a happy ending. colors
+shows the complete, real attack scoring LOW regardless — a denial-of-service
+payload that none of chainwatch's five risk dimensions are built to detect,
+regardless of how completely it's presented. Together they're the dataset's
+most important finding: not every miss has the same fix.
 
 ### Benign (false-positive baseline)
 
@@ -122,17 +125,19 @@ per-pair analysis. Zero severity-level false positives across all four.
 ## Cross-corpus findings
 
 The precision/recall table, detection-gap analysis, and full RQ1–4 synthesis
-across all eleven reports live in [`dataset/findings/README.md`](findings/README.md).
-Headline result: 0% severity-level false positives across nine benign pairs,
-100% precision / 50% recall across node-ipc's two positive pairs — the
-diluted post-remediation remnant scored LOW, the reconstructed complete
-attack scored HIGH. See that document before citing any of these numbers
-in isolation.
+across all twelve reports live in [`dataset/findings/README.md`](findings/README.md).
+Headline result: 0% severity-level false positives across nine benign pairs;
+100% precision / 33% recall across three positive pairs, split into two
+different kinds of miss — node-ipc's diluted registry pair (fixed by
+reconstructing the complete attack, which scored HIGH) and colors's
+reconstructed complete attack (still LOW — a taxonomy gap, not a fetching
+gap; none of chainwatch's five risk dimensions detect denial-of-service
+payloads). See that document before citing any of these numbers in isolation.
 
 ## Still pending
 
-`colors`'s recovered evidence (see `evidence/README.md`) hasn't been run
-through the pipeline the way node-ipc's was — lower priority, since its
-payload (an infinite loop) has a much lower severity ceiling. Widening the
-real-positive sample beyond node-ipc is the clearest next step, per
-`findings/README.md`'s recommendations.
+Widening the real-positive sample beyond these two incidents is the
+clearest next step, per `findings/README.md`'s recommendations — along with
+its highest-priority recommendation: a sixth risk dimension for
+denial-of-service / resource-exhaustion patterns, the one change that would
+have caught colors.

