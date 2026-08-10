@@ -142,3 +142,38 @@ If the project requires the actual attack diff, possible paths:
   is missing — worth checking if payload-side analysis becomes a goal.
 
 </details>
+
+## Reconstructed pair — the actual attack, run for real (2026-08-10)
+
+Unlike `event-stream`/`flatmap-stream` (no live base tarball anywhere),
+`ua-parser-js@0.7.28` **is** still published — so this reconstruction is
+closer in shape to `node-ipc`/`colors` than to `flatmap-stream`: a real,
+still-published base tarball, fetched via chainwatch's own npm fetcher
+(same code path the registry pipeline uses), with the recovered attack
+files spliced onto a copy of it. Specifically: `preinstall.js`,
+`preinstall.sh`, and `preinstall.bat` (byte-identical to `evidence/` —
+hashes in `evidence/README.md`) were copied to the package root, and
+`package.json`'s `scripts` gained `"preinstall": "start /B node
+preinstall.js & node preinstall.js"` — the exact wiring documented above
+and in `evidence/README.md`. The two resulting directories were diffed,
+analysed, and feed-queried directly — never packaged into an installable
+tarball, never served through a registry.
+
+| pair | role | report |
+|---|---|---|
+| `0.7.28 → 0.7.29` *(reconstructed)* | **the actual attack, as chainwatch's diff engine sees it today** | `report-0.7.28-to-0.7.29-RECONSTRUCTED.json` |
+
+**Result: 42.5/100, MEDIUM** — flagged, but the weakest hit in the corpus,
+for a specific and fixable reason: chainwatch's `SOURCE_EXTENSIONS`
+allowlist (`src/chainwatch/diff/engine.py`) doesn't include `.sh`/`.bat`,
+so `preinstall.sh`/`preinstall.bat` — where the actual miner-download and
+credential-stealer logic lives — were never enumerated by the diff engine
+at all, despite being physically present in the directory it diffed. Only
+the dispatcher (`preinstall.js`) and the `package.json` metadata diff
+reached the LLM. A controlled experiment (`SOURCE_EXTENSIONS` patched
+in-process to add `.sh`/`.bat`, otherwise identical run) reaches **57.5,
+HIGH** on the same attack — saved as
+`experiment-full-visibility-0.7.28-to-0.7.29.json` (not a `report-*.json`;
+it required modifying chainwatch's actual behaviour, so it's a comparison
+artifact, not a corpus ground-truth entry). Full breakdown in
+`FINDINGS.md`.

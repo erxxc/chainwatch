@@ -90,28 +90,35 @@ records *when* a run happened without preserving minute-level local timing.
 | Package | Pair(s) analysed | Incident | Malicious version analysable? |
 |---|---|---|---|
 | event-stream | 3.3.4→3.3.5, 3.3.5→4.0.0 (registry) + flatmap-stream 0.1.0→0.1.1 (reconstructed) | Maintainer handoff → crypto theft (2018) | No via the registry pipeline — `3.3.6` unpublished. The actual transitive payload (`flatmap-stream@0.1.1`) was reconstructed from CDN-archaeology evidence (Wayback-cached, cross-validated against a paper's companion dataset) and run directly through the pipeline — scored **60.0/HIGH**. See `event-stream/FINDINGS.md`. |
-| ua-parser-js | 0.7.28→0.7.30, 0.7.30→0.7.31 | Account compromise → cryptominer (2021) | No via the registry pipeline — `0.7.29`/`0.8.0`/`1.0.0` unpublished. Payload code recovered from secondary sources (see `evidence/`) but not yet reconstructed-and-run. |
+| ua-parser-js | 0.7.28→0.7.30, 0.7.30→0.7.31 (registry) + 0.7.28→0.7.29 (reconstructed) | Account compromise → cryptominer (2021) | No via the registry pipeline — `0.7.29`/`0.8.0`/`1.0.0` unpublished. The actual attack was reconstructed onto a real, still-published `0.7.28` base with the recovered `preinstall.js`/`.sh`/`.bat` spliced in — scored **42.5/MEDIUM**, held short of HIGH by a diff-engine file-extension gap (a controlled experiment closing that gap reaches 57.5/HIGH on the same attack). See `ua-parser-js/FINDINGS.md`. |
 | colors | 1.3.3→1.4.0 (control) + 1.4.0→1.4.44-liberty-2 (reconstructed) | Maintainer protest-ware, infinite loop (2022) | No via the registry pipeline — sabotage never republished (`1.4.0` is still `latest`). The actual sabotage commit was reconstructed from verified git history and run directly through the pipeline — scored **7.5/LOW despite being the complete attack**. See `colors/FINDINGS.md`. |
 | node-ipc | 10.1.0→11.0.0 (registry) + 10.1.0→10.1.1 (reconstructed) | Maintainer protest-ware, destructive wiper (2022) | **Yes, both ways.** The compromised `peacenotwar` dependency is still present in `11.0.0` (registry-diffable today, scored 29.5/LOW). The actual destructive wiper (`10.1.1`, unpublished) was reconstructed from its exact verified git commit and run directly through the pipeline — scored **69.0/HIGH**. See `node-ipc/FINDINGS.md`. |
 
 A recurring finding (see the per-package `FINDINGS.md`): for most of the
 highest-profile npm incidents the malicious release has been unpublished
 from the registry, so registry-level diffing only validates *non*-false-positive
-behaviour on the benign neighbours rather than direct detection. node-ipc,
-colors, and event-stream/flatmap-stream are the exceptions: each had its
-complete attack reconstructed and run for real — node-ipc and colors from
-verified git history, event-stream/flatmap-stream from CDN-archaeology
-evidence instead (that incident was an account hijack, never pushed to
-git) — and the three results don't all agree, in an informative way.
+behaviour on the benign neighbours rather than direct detection. All four
+incidents in this corpus are now exceptions: each has had its complete
+attack reconstructed and run for real — node-ipc and colors from verified
+git history, event-stream/flatmap-stream from CDN-archaeology evidence
+(that incident was an account hijack, never pushed to git, with no live
+base tarball either), and ua-parser-js from a real, still-published
+pre-incident base tarball with vendor-writeup-recovered payload scripts
+spliced on — and the four results don't all agree, in an informative way.
 node-ipc shows a correct, high-confidence LLM identification that buckets
 to LOW when the attack is diluted and to HIGH when it isn't — a
 fetching-completeness story with a happy ending. flatmap-stream also
 reaches HIGH, but leans partly on a rare OSV `malicious_floor` hit rather
-than the LLM layer alone. colors shows the complete, real attack scoring
-LOW regardless — a denial-of-service payload that none of chainwatch's five
-risk dimensions are built to detect, regardless of how completely it's
-presented. Together they're the dataset's most important finding: not
-every miss has the same fix, and not every hit is carried the same way.
+than the LLM layer alone. ua-parser-js reaches only MEDIUM despite a
+complete, correctly-wired attack — not because either detection layer
+missed anything it was shown, but because chainwatch's diff engine never
+enumerates `.sh`/`.bat` files, so the two files carrying the actual payload
+never reached the LLM at all. colors shows the complete, real attack
+scoring LOW regardless — a denial-of-service payload that none of
+chainwatch's five risk dimensions are built to detect, regardless of how
+completely it's presented. Together they're the dataset's most important
+finding: not every miss has the same fix, and not every hit is carried the
+same way.
 
 ### Benign (false-positive baseline)
 
@@ -130,25 +137,31 @@ per-pair analysis. Zero severity-level false positives across all four.
 ## Cross-corpus findings
 
 The precision/recall table, detection-gap analysis, and full RQ1–4 synthesis
-across all thirteen reports live in [`dataset/findings/README.md`](findings/README.md).
+across all fourteen reports live in [`dataset/findings/README.md`](findings/README.md).
 Headline result: 0% severity-level false positives across nine benign pairs;
-100% precision / 50% recall across four positive pairs, split into three
+100% precision / 60% recall across five positive pairs, split into four
 different kinds of result — node-ipc's diluted registry pair (fixed by
 reconstructing the complete attack, which scored HIGH, carried entirely by
 the LLM layer), flatmap-stream's reconstructed complete attack (also HIGH,
 but leaning partly on a rare OSV `malicious_floor` hit rather than the LLM
-layer alone), and colors's reconstructed complete attack (still LOW — a
-taxonomy gap, not a fetching gap; none of chainwatch's five risk dimensions
-detect denial-of-service payloads). See that document before citing any of
-these numbers in isolation.
+layer alone), ua-parser-js's reconstructed complete attack (only MEDIUM,
+held back by a diff-engine file-extension gap rather than either detection
+layer — demonstrated fixable via a controlled experiment that reaches
+HIGH), and colors's reconstructed complete attack (still LOW — a taxonomy
+gap, not a fetching gap; none of chainwatch's five risk dimensions detect
+denial-of-service payloads). See that document before citing any of these
+numbers in isolation.
 
 ## Still pending
 
-`ua-parser-js` is the one incident in this corpus not yet reconstructed and
-run for real — its payload scripts are already recovered in `evidence/`,
-only the run is missing (lowest-effort remaining item, per
-`findings/README.md`'s recommendation #5). Beyond that, widening the
-real-positive sample past these four pairs is the clearest next step, along
-with the write-up's highest-priority recommendation: a sixth risk dimension
-for denial-of-service / resource-exhaustion patterns, the one change that
-would have caught colors.
+Reconstruction-and-run is now done for all four incidents in this corpus —
+there's no remaining "not yet run" case. The clearest next steps, per
+`findings/README.md`'s recommendations, are: widening the real-positive
+sample with incidents *beyond* these four (the three sourcing methods used
+here now cover everything currently in scope); adding
+`chainwatch.diff.engine.SOURCE_EXTENSIONS` support for `.sh`/`.bat` (and
+likely `.ps1`/`.cmd`) — the lowest-effort, most concretely-demonstrated fix
+in the write-up, empirically shown to flip ua-parser-js's result from
+MEDIUM to HIGH; and the write-up's other highest-value recommendation, a
+sixth risk dimension for denial-of-service / resource-exhaustion patterns,
+the one change that would have caught colors.

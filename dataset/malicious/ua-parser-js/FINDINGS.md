@@ -2,19 +2,24 @@
 
 Two version pairs were run on 2026-05-23 with `claude-sonnet-4-6` as the
 analyser model. See `SOURCING.md` for why the actual malicious releases
-(`0.7.29` / `0.8.0` / `1.0.0`) could not be analysed.
+(`0.7.29` / `0.8.0` / `1.0.0`) could not be analysed *at the registry level*.
 
 **Update 2026-08-07:** the malicious `preinstall.js`/`.sh`/`.bat` scripts have
 since been reconstructed from public writeups — see `SOURCING.md`'s
-"Recovered evidence" section and `evidence/`. This is reconstructed payload
-code for citation/static reference, not a registry tarball (npm never
-retained one, and no CDN cached it), so it hasn't been run through
-chainwatch's pipeline and the pairs below are still the only pipeline-run
-results in this corpus.
+"Recovered evidence" section and `evidence/`.
 
-Redaction note: report JSON timestamps are normalized to
-`2026-05-23T00:00:00Z` so the corpus records the run date without preserving
-minute-level local execution timing.
+**Update 2026-08-10:** that recovered payload has now been run through the
+real pipeline — a real, still-published `0.7.28` tarball as the base, with
+the recovered `preinstall.js`/`.sh`/`.bat` spliced in exactly as documented
+and the `package.json` preinstall hook wired up, diffed as two local
+directories. See "The reconstructed pair" below — and it surfaces a new
+kind of gap not seen in any other reconstruction in this corpus: the diff
+engine's own file-extension allowlist silently drops two of the three
+payload files before the LLM ever sees them. `claude-sonnet-4-6` again.
+
+Redaction note: the two 2026-05-23 report JSON timestamps are normalized to
+`2026-05-23T00:00:00Z`. The reconstructed pair's report keeps its real
+timestamp, matching the `node-ipc`/`colors`/`flatmap-stream` convention.
 
 ## Summary
 
@@ -22,12 +27,102 @@ minute-level local execution timing.
 |---|---|---|---|---|---|---|---|
 | 0.7.28 → 0.7.30 | brackets 0.7.29 | LOW | 3.8 | 0.0 | suspicious (ReDoS) | no_data | 7.4/10 clean |
 | 0.7.30 → 0.7.31 | post-incident control | LOW | 15.2 | 10.2 | suspicious (ReDoS) | no_data | 7.4/10 clean |
+| 0.7.28 → 0.7.29 *(reconstructed)* | **the actual attack, as chainwatch sees it today** | **MEDIUM** | 47.5 | 42.5 | suspicious (`GHSA-pjwm-rvh2-c87w`) | no_data | 7.6/10 clean |
 
-Tarball SHA256 (verified at fetch time):
+Tarball SHA256 (verified at fetch time — the two registry pairs; the
+reconstructed pair's `from` side is the same real, still-published `0.7.28`
+tarball, fetched via chainwatch's own npm fetcher, but its hash wasn't
+threaded through the report schema — see `SOURCING.md`, matching the
+`node-ipc`/`colors`/`flatmap-stream` convention of `null` sha256 fields on
+reconstructed pairs):
 
 - `0.7.28`: `416a7af001e40ea2430136873c638c8afe655a1485b62b3b9e0d7ed49535e46b`
 - `0.7.30`: `4d433579092044b1e3c17e01d94dc02f29cd133ab83cc3d5f70f35b4c3359056`
 - `0.7.31`: `4d8acdabc90b038490cd85473e5f234096bd3b9a6f3198db6c41788002f06a89`
+
+## The reconstructed pair: MEDIUM, and a new kind of gap — the diff engine's own extension filter
+
+Real `ua-parser-js@0.7.28` (still published) was fetched twice via
+chainwatch's own npm fetcher — once untouched as the "from" side, once as
+the base for the "to" side. The recovered `preinstall.js`, `preinstall.sh`,
+and `preinstall.bat` (byte-identical to `evidence/`, hashes below) were
+copied to the package root, and `package.json`'s `scripts` gained
+`"preinstall": "start /B node preinstall.js & node preinstall.js"` — exactly
+the wiring documented in `evidence/README.md`. Diffed as two local
+directories, no registry fetch on the "to" side.
+
+**`diff_summary.files_added` = `["preinstall.js"]` only.** `preinstall.sh`
+and `preinstall.bat` were physically present in the directory chainwatch
+diffed — and are exactly where the real attack's payload logic lives, per
+`evidence/README.md` — but `chainwatch.diff.engine.SOURCE_EXTENSIONS`
+(`src/chainwatch/diff/engine.py`) only recognises
+`{.js, .ts, .mjs, .cjs, .jsx, .tsx, .py, .pyi}`. `.sh` and `.bat` aren't in
+that set, so `_enumerate_source_files` never returns them — not truncated,
+not skipped-as-oversized, **never enumerated at all**. The LLM was shown
+only the dispatcher (`preinstall.js`, which merely `exec`s/`spawn`s the two
+files by name) and the `package.json` metadata diff (which does correctly
+flag `new_install_hooks: ["preinstall"]` — that part of the schema has no
+extension filter).
+
+| dimension | score | reasoning (abridged) |
+|---|---|---|
+| network_calls | 6.0 | "The shell scripts are not included in the diff, so network calls within them cannot be ruled out... that evidence is not directly visible here" |
+| obfuscation | 1.0 | "No obfuscation patterns... in preinstall.js itself" |
+| install_hooks | 9.0 | "A new 'preinstall' hook is added... introducing arbitrary shell execution at install time with no legitimate documented reason" |
+| env_conditional | 7.0 | "preinstall.js explicitly checks process.platform to branch..." |
+| dependency_changes | 1.0 | "No new package.json dependency additions are visible" |
+
+`llm_base_score` = 47.5, feed-adjusted **42.5, MEDIUM** — flagged (severity
+≠ LOW) but well short of the clean HIGH hits elsewhere in this corpus. The
+LLM's own free text is explicit about *why* it's hedging:
+
+> "Although the shell script contents are not included in the diff, this
+> exact pattern was confirmed to install a cryptocurrency miner and
+> credential-stealing malware."
+
+**It knows what it's missing.** `network_calls` confidence is 0.4 — the
+lowest of any dimension in this run — precisely because the model can see
+it's being shown an incomplete picture, even though nothing in the report
+schema tells it so explicitly; it inferred that from the dispatcher script
+calling out to files it was never shown.
+
+### The natural experiment: what if `SOURCE_EXTENSIONS` recognised `.sh`/`.bat`?
+
+To isolate this as the actual cause (not just a plausible story), the same
+two directories were re-diffed with `engine.SOURCE_EXTENSIONS` monkey-patched
+in-process to add `.sh`/`.bat` — no other change, same real base, same
+splice, same model, same feed queries. This is **not** a primary corpus
+entry (it required modifying chainwatch's actual behaviour, unlike every
+other reconstruction in this dataset) — it's a controlled comparison, saved
+as `experiment-full-visibility-0.7.28-to-0.7.29.json` rather than a
+`report-*.json` so it doesn't get swept into corpus-wide counts.
+
+| | as chainwatch actually behaves | with `.sh`/`.bat` recognised |
+|---|---|---|
+| `files_added` | `["preinstall.js"]` | `["preinstall.bat", "preinstall.js", "preinstall.sh"]` |
+| `network_calls` | 6.0 | **10.0** |
+| `install_hooks` | 9.0 | **10.0** |
+| `env_conditional` | 7.0 | **9.0** |
+| `llm_base_score` | 47.5 | **62.5** |
+| `risk_score` / severity | 42.5 / **MEDIUM** | **57.5 / HIGH** |
+
+Same attack, same LLM, same feeds, same weighting — the *only* variable
+changed is whether the diff engine's file-type allowlist includes the two
+extensions the real payload happened to be written in. That one change
+flips the severity bucket. The full-visibility summary leaves no ambiguity:
+
+> "This update to ua-parser-js 0.7.29 is a confirmed supply chain attack.
+> Three malicious preinstall scripts are added that download and execute a
+> cryptocurrency miner... a geo-exclusion check that skips infection for IP
+> addresses resolving to Russia, Ukraine, Belarus, and Kazakhstan. This is a
+> definitive, unambiguous malicious compromise of the package."
+
+**This is a fourth, structurally distinct category of gap in this corpus** —
+not a fetching-completeness problem (node-ipc), not a missing risk
+dimension (colors), not a feed-timing problem (flatmap-stream), but the diff
+engine's own source-file allowlist. Unlike colors's taxonomy gap, this one
+doesn't need a new dimension or a prompt change — `SOURCE_EXTENSIONS` is a
+single frozenset literal. See `dataset/findings/README.md` recommendations.
 
 ## Per-pair detail
 
@@ -117,6 +212,30 @@ Tarball SHA256 (verified at fetch time):
   current bucketing (LOW < 25), but the gap between this benign diff
   and a hypothetical real attack might be smaller than we'd like.
 
+### 0.7.28 → 0.7.29 *(reconstructed)* — the real attack, scored MEDIUM
+
+- **What changed.** Exactly what shipped: a new `preinstall.js` dispatcher,
+  `preinstall.sh`/`preinstall.bat` payload scripts (miner download,
+  geo-gate, credential-stealer DLL), and a `package.json` `preinstall`
+  hook wiring it all together. See "The reconstructed pair" above for the
+  full dimension breakdown, the extension-filter finding, and the
+  full-visibility comparison experiment.
+- **OSV.** `suspicious` — `GHSA-pjwm-rvh2-c87w`, correctly resolved against
+  `ua-parser-js@0.7.29`. Never reached `MAL-*` (see
+  `dataset/findings/README.md`), so no feed-floor bonus applies here.
+- **Scorecard.** `clean`, 7.6/10 — genuinely reflects the real, actively
+  maintained `faisalman/ua-parser-js` repository (unlike flatmap-stream's
+  reconstruction, where the registry pointed at npm's placeholder repo
+  instead). This applies the `-5.0` mitigant, which is why the composite
+  (42.5) is *below* the LLM base score (47.5) despite this being a real,
+  complete attack.
+- **Take.** Correctly flagged (MEDIUM ≠ LOW), but the weakest "hit" in the
+  corpus, and demonstrably weaker than it needs to be for a reason that has
+  nothing to do with the LLM's judgement or the feeds: the diff engine's
+  own file-extension allowlist withheld the two files that actually contain
+  the attack logic. See the full-visibility experiment above for the
+  counterfactual.
+
 ## Cross-cutting observations
 
 ### 1. Detection-gap analysis
@@ -179,6 +298,18 @@ either:
   - Stamp the report with an explicit "files truncated, score may
     underestimate" caveat that the paper can cite.
 
+**Update 2026-08-10:** the reconstructed pair surfaces a *sibling* gap,
+worth distinguishing from this one. Truncation is "the diff engine saw the
+file but only showed part of it to the LLM." The extension-filter gap (see
+"The reconstructed pair" above) is "the diff engine never saw the file at
+all" — `preinstall.sh`/`.bat` weren't truncated, they were never enumerated,
+because `.sh`/`.bat` aren't in `SOURCE_EXTENSIONS`. Both are false-negative
+risks in the same family (the LLM analyses less than the full attack
+surface), but they have different fixes: truncation needs better chunking;
+the extension filter needs a wider allowlist. Neither is what colors's gap
+is (a taxonomy problem — the LLM sees everything and still has no dimension
+for it).
+
 ### 5. The LLM did real situational reasoning
 
 The `0.7.28→0.7.30` run included an unsolicited paragraph identifying
@@ -189,33 +320,40 @@ package" from "a currently-attacked diff." For the paper, this is a
 qualitative behaviour worth showing alongside the quantitative
 results.
 
-## Position in the Day-3 detection matrix
+## Position in the detection matrix
 
 | package | malicious version available? | did diff-level analysis catch it? |
 |---|---|---|
-| event-stream | no (3.3.6 unpublished) | not testable at registry level |
-| ua-parser-js | no (0.7.29 / 0.8.0 / 1.0.0 unpublished) | not testable at registry level |
+| ua-parser-js | Yes — reconstructed from a real, still-published `0.7.28` base plus the recovered `preinstall.js`/`.sh`/`.bat` scripts, wired up exactly as documented | **Partially** — MEDIUM (42.5/100). Correctly flagged (severity ≠ LOW), but held back from HIGH by the diff engine's own `.sh`/`.bat` extension-filter gap, not by the LLM's judgement or feed timing. A controlled experiment removing just that filter reaches 57.5/HIGH on the same attack, same model, same feeds — see "The reconstructed pair" above. |
 
-Like the event-stream entry, this row in the final precision/recall
-table will need to be excluded or footnoted as "artifact unavailable."
-The available pairs validate that chainwatch does not false-positive
-on the legitimate post-incident diffs (both LOW, score ≤ 10.2), which
-is a non-trivial result given the LLM was situationally aware of the
-attack — it could plausibly have over-flagged anything in this
-package out of caution and did not.
+The two registry-fetched pairs above remain negative results only: they
+validate that chainwatch does not false-positive on the legitimate
+post-incident diffs (both LOW, score ≤ 10.2), which is a non-trivial result
+given the LLM was situationally aware of the attack — it could plausibly
+have over-flagged anything in this package out of caution and did not. The
+reconstructed pair is what actually answers the detection question for this
+incident — see `dataset/findings/README.md` for how it folds into the
+corpus-wide precision/recall numbers.
 
 ## Implementation gaps surfaced by this run
 
-- **`llm_base_score` still null in the report.** Same observation as
-  the event-stream runs: the aggregator logs `LLM base=3.8` and
-  `LLM base=15.2` but the saved JSON does not persist these. The
-  composite-score audit trail is incomplete without it.
-- **Per-dimension `confidence` still null.** As with event-stream,
-  the prompt asks for per-dimension reasoning but not confidence.
-- **`from_version_sha256` / `to_version_sha256` are present** — same
-  as event-stream, reproducibility on the input artefacts is preserved.
-- **Feed-modifier provenance not in the report.** The aggregator
-  knows it applied `scorecard:good -5` but the saved JSON shows only
-  the final `risk_score`. For the paper we want to be able to
-  decompose any score post-hoc; adding a `score_modifiers` array to
-  the report would close that.
+- **`llm_base_score` was `null` in both original 2026-05-23 reports.** The
+  aggregator logged `LLM base=3.8` and `LLM base=15.2` but the saved JSON
+  didn't persist these. **Since fixed** (schema `0.2.0`) — the reconstructed
+  pair's report carries it (`47.5`) directly.
+- **Per-dimension `confidence` was `null` in both original reports.**
+  **Since fixed** — the reconstructed pair's report has `confidence`
+  populated on every dimension (0.4–0.95).
+- **`from_version_sha256` / `to_version_sha256` are present for the two
+  registry-fetched pairs**, preserving reproducibility on the input
+  artefacts. Both are `null` for the reconstructed pair — the "from" side
+  really is the same real `0.7.28` tarball (hash above), but its digest
+  wasn't threaded through `aggregator.build_report`, matching the
+  established convention for reconstructed pairs elsewhere in this corpus.
+- **Feed-modifier provenance was missing from the original reports.**
+  **Since fixed** (`score_modifiers[]`, schema `0.2.0`) — the reconstructed
+  pair's report shows `scorecard:scorecard_good -5.0` explicitly.
+- **New, not yet fixed: `SOURCE_EXTENSIONS` doesn't include `.sh`/`.bat`.**
+  See "The reconstructed pair" above — this is the one implementation gap
+  this run surfaced that's still open. `dataset/findings/README.md`
+  recommendations.
