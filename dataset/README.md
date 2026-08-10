@@ -90,7 +90,7 @@ records *when* a run happened without preserving minute-level local timing.
 | Package | Pair(s) analysed | Incident | Malicious version analysable? |
 |---|---|---|---|
 | event-stream | 3.3.4→3.3.5, 3.3.5→4.0.0 (registry) + flatmap-stream 0.1.0→0.1.1 (reconstructed) | Maintainer handoff → crypto theft (2018) | No via the registry pipeline — `3.3.6` unpublished. The actual transitive payload (`flatmap-stream@0.1.1`) was reconstructed from CDN-archaeology evidence (Wayback-cached, cross-validated against a paper's companion dataset) and run directly through the pipeline — scored **60.0/HIGH**. See `event-stream/FINDINGS.md`. |
-| ua-parser-js | 0.7.28→0.7.30, 0.7.30→0.7.31 (registry) + 0.7.28→0.7.29 (reconstructed) | Account compromise → cryptominer (2021) | No via the registry pipeline — `0.7.29`/`0.8.0`/`1.0.0` unpublished. The actual attack was reconstructed onto a real, still-published `0.7.28` base with the recovered `preinstall.js`/`.sh`/`.bat` spliced in — scored **42.5/MEDIUM**, held short of HIGH by a diff-engine file-extension gap (a controlled experiment closing that gap reaches 57.5/HIGH on the same attack). See `ua-parser-js/FINDINGS.md`. |
+| ua-parser-js | 0.7.28→0.7.30, 0.7.30→0.7.31 (registry) + 0.7.28→0.7.29 (reconstructed) | Account compromise → cryptominer (2021) | No via the registry pipeline — `0.7.29`/`0.8.0`/`1.0.0` unpublished. The actual attack was reconstructed onto a real, still-published `0.7.28` base with the recovered `preinstall.js`/`.sh`/`.bat` spliced in — first scored 42.5/MEDIUM, held short of HIGH by a diff-engine file-extension gap; that gap was fixed the same day (`SOURCE_EXTENSIONS` now recognises `.sh`/`.bat`/`.ps1`/`.cmd`) and a fresh rerun against the real fixed code scored **60.0/HIGH**. See `ua-parser-js/FINDINGS.md`. |
 | colors | 1.3.3→1.4.0 (control) + 1.4.0→1.4.44-liberty-2 (reconstructed) | Maintainer protest-ware, infinite loop (2022) | No via the registry pipeline — sabotage never republished (`1.4.0` is still `latest`). The actual sabotage commit was reconstructed from verified git history and run directly through the pipeline — scored **7.5/LOW despite being the complete attack**. See `colors/FINDINGS.md`. |
 | node-ipc | 10.1.0→11.0.0 (registry) + 10.1.0→10.1.1 (reconstructed) | Maintainer protest-ware, destructive wiper (2022) | **Yes, both ways.** The compromised `peacenotwar` dependency is still present in `11.0.0` (registry-diffable today, scored 29.5/LOW). The actual destructive wiper (`10.1.1`, unpublished) was reconstructed from its exact verified git commit and run directly through the pipeline — scored **69.0/HIGH**. See `node-ipc/FINDINGS.md`. |
 
@@ -109,14 +109,16 @@ node-ipc shows a correct, high-confidence LLM identification that buckets
 to LOW when the attack is diluted and to HIGH when it isn't — a
 fetching-completeness story with a happy ending. flatmap-stream also
 reaches HIGH, but leans partly on a rare OSV `malicious_floor` hit rather
-than the LLM layer alone. ua-parser-js reaches only MEDIUM despite a
+than the LLM layer alone. ua-parser-js first reached only MEDIUM despite a
 complete, correctly-wired attack — not because either detection layer
-missed anything it was shown, but because chainwatch's diff engine never
-enumerates `.sh`/`.bat` files, so the two files carrying the actual payload
-never reached the LLM at all. colors shows the complete, real attack
-scoring LOW regardless — a denial-of-service payload that none of
-chainwatch's five risk dimensions are built to detect, regardless of how
-completely it's presented. Together they're the dataset's most important
+missed anything it was shown, but because chainwatch's diff engine didn't
+enumerate `.sh`/`.bat` files, so the two files carrying the actual payload
+never reached the LLM at all. That gap was diagnosed and fixed the same
+day; a rerun against the real fixed code reached HIGH. colors shows the
+complete, real attack scoring LOW regardless — a denial-of-service payload
+that none of chainwatch's five risk dimensions are built to detect,
+regardless of how completely it's presented, and with no equivalent
+same-day fix available. Together they're the dataset's most important
 finding: not every miss has the same fix, and not every hit is carried the
 same way.
 
@@ -144,24 +146,26 @@ different kinds of result — node-ipc's diluted registry pair (fixed by
 reconstructing the complete attack, which scored HIGH, carried entirely by
 the LLM layer), flatmap-stream's reconstructed complete attack (also HIGH,
 but leaning partly on a rare OSV `malicious_floor` hit rather than the LLM
-layer alone), ua-parser-js's reconstructed complete attack (only MEDIUM,
+layer alone), ua-parser-js's reconstructed complete attack (first MEDIUM,
 held back by a diff-engine file-extension gap rather than either detection
-layer — demonstrated fixable via a controlled experiment that reaches
-HIGH), and colors's reconstructed complete attack (still LOW — a taxonomy
-gap, not a fetching gap; none of chainwatch's five risk dimensions detect
-denial-of-service payloads). See that document before citing any of these
-numbers in isolation.
+layer — that gap was fixed the same day and a rerun against the real fixed
+code reached HIGH), and colors's reconstructed complete attack (still LOW —
+a taxonomy gap, not a fetching gap, with no equivalent fix available yet;
+none of chainwatch's five risk dimensions detect denial-of-service
+payloads). See that document before citing any of these numbers in
+isolation.
 
 ## Still pending
 
 Reconstruction-and-run is now done for all four incidents in this corpus —
-there's no remaining "not yet run" case. The clearest next steps, per
-`findings/README.md`'s recommendations, are: widening the real-positive
+there's no remaining "not yet run" case — and it drove one real code fix
+along the way: `chainwatch.diff.engine.SOURCE_EXTENSIONS` now recognises
+`.sh`/`.bat`/`.ps1`/`.cmd`, closing the gap that held ua-parser-js's
+reconstructed attack to MEDIUM instead of HIGH. The clearest next steps,
+per `findings/README.md`'s recommendations, are: widening the real-positive
 sample with incidents *beyond* these four (the three sourcing methods used
-here now cover everything currently in scope); adding
-`chainwatch.diff.engine.SOURCE_EXTENSIONS` support for `.sh`/`.bat` (and
-likely `.ps1`/`.cmd`) — the lowest-effort, most concretely-demonstrated fix
-in the write-up, empirically shown to flip ua-parser-js's result from
-MEDIUM to HIGH; and the write-up's other highest-value recommendation, a
-sixth risk dimension for denial-of-service / resource-exhaustion patterns,
-the one change that would have caught colors.
+here now cover everything currently in scope), and the write-up's other
+highest-value recommendation, a sixth risk dimension for
+denial-of-service / resource-exhaustion patterns — the one change that
+would have caught colors, and the one gap in this corpus still without a
+fix.

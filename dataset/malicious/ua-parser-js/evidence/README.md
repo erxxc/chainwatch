@@ -71,15 +71,19 @@ assembled from secondary sources.
 | `0.7.28/` (from) | Real, unmodified `ua-parser-js@0.7.28` tarball, extracted via chainwatch's own fetcher | npm registry (still live) |
 | `0.7.29/` (to) | Same real `0.7.28` tree, plus `preinstall.js`/`.sh`/`.bat` copied to the package root (byte-identical to the files above) and `package.json`'s `scripts.preinstall` set to `"start /B node preinstall.js & node preinstall.js"` | `0.7.28` base + this directory's evidence files |
 
-Result: **42.5/100, MEDIUM** —
-`dataset/malicious/ua-parser-js/report-0.7.28-to-0.7.29-RECONSTRUCTED.json`.
-Held back from HIGH specifically because
-`chainwatch.diff.engine.SOURCE_EXTENSIONS` doesn't recognise `.sh`/`.bat`,
-so `preinstall.sh`/`preinstall.bat` were never enumerated by the diff
-engine despite being physically present — only `preinstall.js` (the
-dispatcher, not the payload) reached the LLM. A same-run experiment with
-`.sh`/`.bat` added to that allowlist (nothing else changed) reaches
-**57.5, HIGH** on the identical attack —
-`experiment-full-visibility-0.7.28-to-0.7.29.json`, not a `report-*.json`
-since it required patching chainwatch's actual behaviour. Full breakdown
-in `../FINDINGS.md`.
+First result: **42.5/100, MEDIUM** — preserved at
+`../pre-fix-report-0.7.28-to-0.7.29-RECONSTRUCTED.json`. Held back from
+HIGH specifically because `chainwatch.diff.engine.SOURCE_EXTENSIONS` didn't
+recognise `.sh`/`.bat`, so `preinstall.sh`/`preinstall.bat` were never
+enumerated by the diff engine despite being physically present — only
+`preinstall.js` (the dispatcher, not the payload) reached the LLM. A
+same-run experiment with `.sh`/`.bat` added to that allowlist (nothing else
+changed) reached **57.5, HIGH** on the identical attack —
+`../experiment-full-visibility-0.7.28-to-0.7.29.json`.
+
+**Fixed 2026-08-10, same day:** `SOURCE_EXTENSIONS` now includes
+`.sh`/`.bat`/`.ps1`/`.cmd` for real (`src/chainwatch/diff/engine.py`), and
+the reconstruction was rerun against the actual fixed code — no
+monkey-patching. **Current result: 60.0/100, HIGH** —
+`../report-0.7.28-to-0.7.29-RECONSTRUCTED.json`, now the canonical entry
+for this pair. Full before/after breakdown in `../FINDINGS.md`.

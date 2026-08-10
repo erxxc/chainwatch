@@ -36,23 +36,26 @@ categories that a single recall number would blur together:
   directories, real pipeline, no registry fetch. **Scores HIGH (60.0)** —
   detection works here too, though not purely on the LLM layer's strength
   alone (see below).
-- **A partial hit, held back by the diff engine itself, not the model.**
-  `ua-parser-js@0.7.29` (the real miner/credential-stealer preinstall
+- **A second fetching/completeness-shaped gap, found and fixed the same
+  day.** `ua-parser-js@0.7.29` (the real miner/credential-stealer preinstall
   attack) was reconstructed onto a real, still-published `0.7.28` base and
-  **scores MEDIUM (42.5)** — flagged, but the weakest hit in the corpus.
-  Not because the LLM missed anything it was shown: `preinstall.sh`/
-  `preinstall.bat`, where the actual payload logic lives, were never shown
-  to it at all — chainwatch's diff engine only recognises a fixed set of
-  source-file extensions, and `.sh`/`.bat` aren't in it. A controlled
-  experiment adding just those two extensions, nothing else, reaches
-  **57.5, HIGH** on the identical attack.
+  first **scored MEDIUM (42.5)** — flagged, but the weakest hit in the
+  corpus. Not because the LLM missed anything it was shown:
+  `preinstall.sh`/`preinstall.bat`, where the actual payload logic lives,
+  were never shown to it at all — chainwatch's diff engine only recognised
+  a fixed set of source-file extensions, and `.sh`/`.bat` weren't in it. A
+  controlled experiment adding just those two extensions confirmed the
+  cause (**57.5, HIGH** on the identical attack), the fix was implemented
+  for real (`SOURCE_EXTENSIONS` now includes `.sh`/`.bat`/`.ps1`/`.cmd`),
+  and an independent, non-monkey-patched rerun against the real fixed code
+  confirmed it: **60.0, HIGH.**
 
 Read together: *does the detection logic work, given the real attack* is
-"mostly yes, with one confirmed exception and one partial one" —
-data-exfiltration-shaped payloads are caught whether reconstructed from git
-(node-ipc), CDN archaeology (flatmap-stream), or a live base tarball plus
-recovered install scripts (ua-parser-js, though only weakly as chainwatch's
-file-type filter currently stands); a denial-of-service-shaped payload
+"yes, with one confirmed exception" — data-exfiltration-shaped payloads are
+caught whether reconstructed from git (node-ipc), CDN archaeology
+(flatmap-stream), or a live base tarball plus recovered install scripts
+(ua-parser-js, once the diff engine's file-type filter was widened to
+actually show them to the model); a denial-of-service-shaped payload
 (colors) is not, regardless of source completeness. *Can chainwatch's
 registry-based fetching autonomously find these attacks in the wild* is no
 for all four incidents, structurally, because npm's unpublish policy
@@ -61,9 +64,11 @@ otherwise — could see it.
 
 All tables are computed directly from the fourteen committed `report-*.json`
 files plus live OSV queries; see "Reproducing this analysis" at the end.
-(A fifteenth report-shaped file, ua-parser-js's full-visibility experiment,
-is deliberately excluded from that count and from every table below — see
-"The reconstructed pair" in `malicious/ua-parser-js/FINDINGS.md` for why.)
+(Two report-shaped files are deliberately excluded from that count and from
+every table below: ua-parser-js's pre-fix report, preserved for history at
+`malicious/ua-parser-js/pre-fix-report-0.7.28-to-0.7.29-RECONSTRUCTED.json`,
+and its full-visibility experiment. See "The reconstructed pair" in
+`malicious/ua-parser-js/FINDINGS.md` for why.)
 
 ## The corpus's central limitation, stated up front
 
@@ -103,15 +108,17 @@ methods, not one, and all three are now exhausted for this corpus:
 the same direction.** node-ipc's reconstruction flipped a miss into a hit;
 flatmap-stream's reconstruction was a hit outright, but one that leans
 partly on a feed rule rather than the LLM layer alone; ua-parser-js's
-reconstruction is a hit only by the letter of the classification rule
-(MEDIUM ≠ LOW) — held well short of a clean HIGH by a gap in the diff
-engine itself, not the model; colors's reconstruction stayed a miss for a
-completely different reason (see below). None of this generalises into a
-validated recall rate on five points. Where useful, we widen the lens using
-live feed queries against the *actual* malicious version strings (no
-tarball needed — feed clients take a version string), giving more data
-points for the detection-gap and signature-comparison questions than the
-reconstructed pairs alone.
+reconstruction *found* a gap in the diff engine itself (not the model) that
+held it to a hit-by-technicality (MEDIUM, ≠ LOW but far from a clean HIGH)
+— and that gap was diagnosed and fixed the same day, after which an
+independent rerun against the real fixed code reached a clean HIGH too;
+colors's reconstruction stayed a miss for a completely different reason
+(see below), with no equivalent same-day fix available. None of this
+generalises into a validated recall rate on five points. Where useful, we
+widen the lens using live feed queries against the *actual* malicious
+version strings (no tarball needed — feed clients take a version string),
+giving more data points for the detection-gap and signature-comparison
+questions than the reconstructed pairs alone.
 
 ## Corpus overview
 
@@ -130,7 +137,7 @@ reconstructed pairs alone.
 | **node-ipc** | **10.1.0→10.1.1** *(reconstructed)* | **malicious** (the actual wiper) | **69.0** | **HIGH** |
 | **colors** | **1.4.0→1.4.44-liberty-2** *(reconstructed)* | **malicious** (the actual sabotage) | **7.5** | **LOW** |
 | **flatmap-stream** | **0.1.0→0.1.1** *(reconstructed)* | **malicious** (the actual bootstrap payload) | **60.0** | **HIGH** |
-| **ua-parser-js** | **0.7.28→0.7.29** *(reconstructed)* | **malicious** (the actual miner/credential-stealer attack) | **42.5** | **MEDIUM** |
+| **ua-parser-js** | **0.7.28→0.7.29** *(reconstructed)* | **malicious** (the actual miner/credential-stealer attack) | **60.0** | **HIGH** |
 
 ## Precision / recall (Figure 1)
 
@@ -149,11 +156,12 @@ Confusion matrix at the default classification rule — **flagged = severity
 
 Read plainly: chainwatch never bucketed a benign diff above LOW, and it
 correctly flagged three of the five real attacks it saw in complete form —
-two cleanly as HIGH (node-ipc, exfiltration-shaped; flatmap-stream,
-obfuscation/env-gated), one only as far as MEDIUM (ua-parser-js). It missed
-the diluted node-ipc remnant and the complete colors attack entirely. **None
-of these five outcomes are the same finding** — collapsing them into one
-recall number would hide the more useful result:
+all three cleanly as HIGH (node-ipc, exfiltration-shaped; flatmap-stream,
+obfuscation/env-gated; ua-parser-js, install-hook/miner-shaped, as of the
+`SOURCE_EXTENSIONS` fix below). It missed the diluted node-ipc remnant and
+the complete colors attack entirely. **None of these five outcomes are the
+same finding** — collapsing them into one recall number would hide the more
+useful result:
 
 - **node-ipc's miss is a fetching-completeness problem, demonstrated
   fixed.** chainwatch scored *correctly relative to what it could see*, and
@@ -170,19 +178,20 @@ recall number would hide the more useful result:
   seven-year history) and the result still lands HIGH here, but only just
   (56.5, on the Scorecard modifier alone) — a much thinner margin than
   node-ipc's LLM-carried 69.0. See `malicious/event-stream/FINDINGS.md`.
-- **ua-parser-js's hit clears the bar on a technicality — and the shortfall
-  is diagnosable to a single line of code.** The complete attack was
-  reconstructed onto a real base tarball, wired in exactly as it shipped,
-  and still only reaches MEDIUM (42.5), because chainwatch's own
-  `SOURCE_EXTENSIONS` allowlist never enumerates `preinstall.sh`/`.bat` — the
-  two files carrying the actual payload — so the LLM only ever sees the
-  dispatcher that calls them. A same-attack, same-model, same-feeds
-  controlled experiment that widens just that allowlist reaches 57.5, HIGH.
-  This is not a taxonomy gap (there's no missing dimension here —
-  `install_hooks` and `env_conditional` both fire correctly on what they
-  *are* shown) and not a fetching gap (the base tarball is real and
-  complete) — it's the diff engine's file-type filter specifically. See
-  `malicious/ua-parser-js/FINDINGS.md`.
+- **ua-parser-js's hit was a technicality — until a same-day code fix made
+  it a clean one.** The complete attack, reconstructed onto a real base
+  tarball and wired in exactly as it shipped, first reached only MEDIUM
+  (42.5), because chainwatch's own `SOURCE_EXTENSIONS` allowlist never
+  enumerated `preinstall.sh`/`.bat` — the two files carrying the actual
+  payload — so the LLM only ever saw the dispatcher that calls them. This
+  wasn't a taxonomy gap (`install_hooks`/`env_conditional` fired correctly
+  on what they *were* shown) and wasn't a fetching gap (the base tarball
+  was real and complete) — it was the diff engine's file-type filter
+  specifically, and unlike colors's gap, it was a one-line fix:
+  `SOURCE_EXTENSIONS` now includes `.sh`/`.bat`/`.ps1`/`.cmd`. An
+  independent rerun against the real fixed code (not a monkey-patch)
+  reaches **60.0, HIGH** on the identical attack. See
+  `malicious/ua-parser-js/FINDINGS.md` for the full before/after.
 - **colors's miss is a taxonomy problem.** The complete, real attack was
   presented to the model and it still scored LOW, because a denial-of-service
   payload (an infinite loop) doesn't match any of chainwatch's five risk
@@ -196,32 +205,32 @@ recall number would hide the more useful result:
 
 ### What separates a fetching miss from a taxonomy miss, dimension by dimension
 
-| dimension | node-ipc `11.0.0` (fetching miss — LOW) | node-ipc `10.1.1` (reconstructed — HIGH) | flatmap-stream `0.1.1` (reconstructed — HIGH) | ua-parser-js `0.7.29` (reconstructed — MEDIUM) | colors (reconstructed — still LOW) |
+| dimension | node-ipc `11.0.0` (fetching miss — LOW) | node-ipc `10.1.1` (reconstructed — HIGH) | flatmap-stream `0.1.1` (reconstructed — HIGH) | ua-parser-js `0.7.29` (reconstructed, post-fix — HIGH) | colors (reconstructed — still LOW) |
 |---|---|---|---|---|---|
-| network_calls | 2.0 | **10.0** (corpus max) | 3.0 | 6.0 | 0.0 |
-| obfuscation | 2.0 | **10.0** (corpus max) | **10.0** (corpus max) | 1.0 | 1.0 |
-| env_conditional | 4.0 | **9.0** | **9.0** | 7.0 | 0.0 |
-| install_hooks | 0.0 | 2.0 | 2.0 | **9.0** | 0.0 |
+| network_calls | 2.0 | **10.0** (corpus max) | 3.0 | **10.0** (corpus max) | 0.0 |
+| obfuscation | 2.0 | **10.0** (corpus max) | **10.0** (corpus max) | 2.0 | 1.0 |
+| env_conditional | 4.0 | **9.0** | **9.0** | **9.0** | 0.0 |
+| install_hooks | 0.0 | 2.0 | 2.0 | **10.0** (corpus max) | 0.0 |
 | dependency_changes | **9.0** | 1.0 | 1.0 | 1.0 | 0.0 |
-| **llm_base_score** | 29.5 | **69.0** | **51.5** | **47.5** | **2.5** |
-| **risk_score (feed-adjusted)** | 29.5 | 69.0 | **60.0** | **42.5** | 7.5 |
+| **llm_base_score** | 29.5 | **69.0** | **51.5** | **65.0** | **2.5** |
+| **risk_score (feed-adjusted)** | 29.5 | 69.0 | **60.0** | **60.0** | 7.5 |
 
 An earlier draft of this write-up, written after only node-ipc's two
 positives existed, proposed **"any single dimension ≥ 7"** as a candidate
 rule — it happened to hold for both node-ipc pairs, on different dimensions
 each time, and it holds for flatmap-stream (`obfuscation`/`env_conditional`
-both ≥ 9) and ua-parser-js (`install_hooks` = 9.0) too. **colors refutes it:
-its highest dimension score is 1.0.** That correction is worth keeping
-visible rather than quietly fixing — it's the clearest demonstration in
-this write-up of why n=2 wasn't enough to generalise from, and n=5 still
-isn't (four points consistent with a rule and one clean counterexample is
-not a validated rule). The dimension set's blind spot for denial-of-service
-attacks isn't a threshold-tuning problem; no per-dimension or
-composite-score rule built from these five dimensions can catch colors,
-because none of the five ever fire on it. Full breakdown of the
-`dependency_changes` weight-capping issue specifically (which *is* a
-threshold/weighting problem, for node-ipc's diluted pair only) in
-`malicious/node-ipc/FINDINGS.md`.
+both ≥ 9) and ua-parser-js (`network_calls`/`install_hooks` both at the
+corpus max, post-fix) too. **colors refutes it: its highest dimension score
+is 1.0.** That correction is worth keeping visible rather than quietly
+fixing — it's the clearest demonstration in this write-up of why n=2 wasn't
+enough to generalise from, and n=5 still isn't (four points consistent with
+a rule and one clean counterexample is not a validated rule). The dimension
+set's blind spot for denial-of-service attacks isn't a threshold-tuning
+problem; no per-dimension or composite-score rule built from these five
+dimensions can catch colors, because none of the five ever fire on it. Full
+breakdown of the `dependency_changes` weight-capping issue specifically
+(which *is* a threshold/weighting problem, for node-ipc's diluted pair
+only) in `malicious/node-ipc/FINDINGS.md`.
 
 Worth flagging separately: flatmap-stream's `llm_base_score` (51.5) clears
 the "any dimension ≥ 7" bar comfortably but does *not* clear the
@@ -232,20 +241,21 @@ one as suspicious even without the feed boost; the *severity bucket*
 specifically is where the feed layer's contribution shows up. See
 `malicious/event-stream/FINDINGS.md` for the full modifier trace.
 
-**ua-parser-js's `install_hooks` = 9.0 is the table's odd one out, and it's
-informative.** It's the single highest-confidence dimension score for this
-pair (0.95), correctly reflecting a real new `preinstall` hook — and it's
-scored *without the LLM ever seeing the actual payload*, purely from the
-dispatcher script plus the `package.json` metadata diff. That's the
-dimension set doing exactly what it's designed to do, on partial evidence.
-What it can't do is compensate for `network_calls` (6.0, confidence 0.4 —
-the lowest confidence anywhere in this table) and `env_conditional` (7.0)
+**ua-parser-js's column tells a before/after story the table alone can't
+show.** Pre-fix, `install_hooks` was already 9.0 — the single
+highest-confidence dimension score in that run (0.95), correctly reflecting
+a real new `preinstall` hook, scored *without the LLM ever seeing the
+actual payload*, purely from the dispatcher script plus the `package.json`
+metadata diff. That's the dimension set doing exactly what it's designed to
+do, on partial evidence. What it couldn't do was compensate for
+`network_calls` (pre-fix: 6.0, confidence 0.4 — the lowest confidence
+recorded anywhere in this write-up) and `env_conditional` (pre-fix: 7.0)
 staying muted, because the diff engine withheld the two files
-(`preinstall.sh`/`.bat`) that would have driven those higher — demonstrated
-directly: with those two extensions added to `SOURCE_EXTENSIONS` and
-nothing else changed, `network_calls` jumps to 10.0, `env_conditional` to
-9.0, `install_hooks` to 10.0, and `llm_base_score` to 62.5. See
-`malicious/ua-parser-js/FINDINGS.md` for the full comparison.
+(`preinstall.sh`/`.bat`) that would have driven those higher. The numbers
+in the table above are the post-fix rerun — `network_calls` and
+`install_hooks` both now hit the corpus max (10.0) with confidence 1.0. See
+`malicious/ua-parser-js/FINDINGS.md` for the full pre-fix/post-fix
+comparison.
 
 ## RQ1 — which detection layer catches each known attack
 
@@ -258,7 +268,7 @@ scripts spliced on. Results, live-queried/run for this write-up:
 | Incident | LLM layer | OSV feed (queried against the real malicious version) | Ever `MAL-*`? |
 |---|---|---|---|
 | event-stream / flatmap-stream (reconstructed, `0.1.1`) | **Tested for real:** `obfuscation=10.0`, `env_conditional=9.0`, free-text: *"a definitive, confirmed malicious supply chain attack"*, base score 51.5 (MEDIUM on its own), feed-adjusted **60.0, HIGH** | `GHSA-mh6f-8j2x-4483`, `GHSA-9x64-5r7x-2q53`, **`MAL-2025-20690`** | **Yes — flatmap-stream only, and only since 2025-08-14** |
-| ua-parser-js (reconstructed, `0.7.29`) | **Tested for real:** `install_hooks=9.0`, `env_conditional=7.0`, free-text names the incident by CVE, base score 47.5, feed-adjusted **42.5, MEDIUM** — held short of HIGH by a diff-engine file-extension gap (`.sh`/`.bat` not enumerated), demonstrated fixable: same run with that gap closed reaches 57.5, **HIGH** | `GHSA-pjwm-rvh2-c87w` | No, never |
+| ua-parser-js (reconstructed, `0.7.29`, post-fix) | **Tested for real:** `network_calls=10.0`, `install_hooks=10.0`, `env_conditional=9.0`, free-text names the incident by CVE, base score 65.0, feed-adjusted **60.0, HIGH**. Pre-fix (a diff-engine file-extension gap, `.sh`/`.bat` not enumerated) this same attack scored only 42.5, MEDIUM — see `malicious/ua-parser-js/FINDINGS.md` | `GHSA-pjwm-rvh2-c87w` | No, never |
 | colors (reconstructed, `1.4.44-liberty-2`) | **Tested for real:** all 5 dimensions ≤1.0, free-text correctly names the incident but calls it "malicious in effect" without that reaching any dimension, base score 2.5, **LOW** | `GHSA-5rqg-jm4f-cqx7`, `GHSA-gh88-3pxp-6fm8` | No, never |
 | node-ipc (registry-fetched, `11.0.0`) | Tested for real: `dependency_changes=9.0`, free-text names the incident, base score 29.5, **LOW** | `GHSA-3mpp-xfvh-qh37` | No, never |
 | node-ipc (reconstructed, `10.1.1`) | **Tested for real:** `network_calls=10.0`, `obfuscation=10.0`, free-text: *"confirmed, unambiguous malicious payload"*, base score 69.0, **HIGH** | `GHSA-97m3-w2cp-4xx6` | No, never |
@@ -268,22 +278,27 @@ node-ipc's full payload, both layers agree it's malicious and the composite
 score reflects that (HIGH), carried by the LLM layer alone.** Given only
 node-ipc's post-remediation remnant, both layers still find real signal
 (dependency_changes=9.0; a real if lower-severity GHSA) but the composite
-stays LOW — a fetching-completeness gap. **flatmap-stream's complete attack
-also reaches HIGH, but through a different mechanism**: the LLM layer finds
-strong signal (obfuscation and env-gating both correctly scored ≥9) yet its
-base score alone only clears MEDIUM — it's the OSV feed, reporting
-`malicious` on this one advisory, that pushes the composite over the HIGH
-threshold. **ua-parser-js's complete attack reaches only MEDIUM, and this
-time neither layer is the bottleneck**: the LLM correctly identifies the
-incident and scores `install_hooks`/`env_conditional` strongly on the
-evidence it's given, and OSV correctly returns the real advisory — the
-shortfall is entirely upstream of both layers, in the diff engine's file
-enumeration step. **colors shows that "complete attack" isn't sufficient on
-its own**: even with the full, real sabotage commit, the LLM layer's
-free-text correctly recognises it while its scored dimensions don't, and
-the OSV feed finds real advisories that (like every advisory in this corpus
-except one) never reach `MAL-*`. Both layers "know" about colors in some
-sense; neither translates that knowledge into a flagged composite score.
+stays LOW — a fetching-completeness gap, demonstrated fixed by
+reconstruction. **flatmap-stream's complete attack also reaches HIGH, but
+through a different mechanism**: the LLM layer finds strong signal
+(obfuscation and env-gating both correctly scored ≥9) yet its base score
+alone only clears MEDIUM — it's the OSV feed, reporting `malicious` on this
+one advisory, that pushes the composite over the HIGH threshold.
+**ua-parser-js's complete attack needed a code fix to reach HIGH, and once
+it did, neither layer was ever the bottleneck**: the LLM correctly
+identified the incident and scored the dimensions it was shown strongly
+even before the fix, and OSV correctly returned the real advisory
+throughout — the pre-fix shortfall was entirely upstream of both layers, in
+the diff engine's file enumeration step, and a same-day widening of
+`SOURCE_EXTENSIONS` closed it, confirmed by an independent rerun.
+**colors shows that "complete attack" isn't sufficient on its own**: even
+with the full, real sabotage commit, the LLM layer's free-text correctly
+recognises it while its scored dimensions don't, and the OSV feed finds
+real advisories that (like every advisory in this corpus except one) never
+reach `MAL-*`. Both layers "know" about colors in some sense; neither
+translates that knowledge into a flagged composite score — and unlike
+ua-parser-js's gap, there's no single-line fix available for this one; see
+recommendation #1.
 
 **The finding that generalises across all four incidents:** chainwatch's
 aggregator only floors the score to the HIGH range when a feed reports
@@ -304,11 +319,11 @@ result. **flatmap-stream's HIGH result is the opposite case**: it's the one
 pair in this corpus where the feed-floor rule's rare, years-late hit
 actually mattered to the outcome — run this same query before 2025-08-14
 and the composite would have landed at 56.5 (still HIGH, but on the
-Scorecard modifier's back, not OSV's). **ua-parser-js sits between the
-two**: OSV never reaches `MAL-*` for it at all, so the feed layer
-contributes nothing to pushing this one higher — the entire gap between its
-actual MEDIUM and its demonstrated-achievable HIGH lives in the diff
-engine, not in either detection layer.
+Scorecard modifier's back, not OSV's). **ua-parser-js sits apart from
+both**: OSV never reaches `MAL-*` for it at all, so the feed layer never
+contributed to pushing this one higher, before or after the fix — the
+entire pre-fix shortfall, and its resolution, lived in the diff engine, not
+in either detection layer.
 
 ## RQ2 — detection gap
 
@@ -374,22 +389,26 @@ publish time *and*, per node-ipc's reconstructed pair, the ability to reach
 a correct HIGH verdict entirely on its own, without the feed-floor rule ever
 firing — flatmap-stream shows that same layer finding strong signal
 (obfuscation/env-gating both ≥9) even where it *doesn't* single-handedly
-carry the severity bucket. Its structural disadvantage has three distinct
-shapes, not one: given a *diluted* remnant of an exfiltration-shaped attack
-(node-ipc `11.0.0`), the strongest per-dimension finding (9.0/10) didn't
-clear the aggregate severity bar, but *would* if fetching improved. Given a
-*complete* denial-of-service-shaped attack (colors), no amount of better
-fetching helps — the dimension set itself has no concept of "this never
-returns," and a signature database is no better positioned here either
-(colors's two GHSA advisories exist and are just as un-actionable as
-chainwatch's own score). Given a *complete* install-hook attack whose
-payload lives in `.sh`/`.bat` files (ua-parser-js), neither better fetching
-nor a new dimension is the fix — the diff engine's own file-type allowlist
-is; a signature database sidesteps this entirely (OSV's advisory doesn't
-care what file extension the payload shipped in), which is the one place in
-this comparison where a pure signature lookup has a structural edge chainwatch
-currently lacks, even though it's the slower and less-available signal
-overall.
+carry the severity bucket. Its structural disadvantage had three distinct
+shapes, not one, and one of them is now closed: given a *diluted* remnant
+of an exfiltration-shaped attack (node-ipc `11.0.0`), the strongest
+per-dimension finding (9.0/10) didn't clear the aggregate severity bar, but
+*did* once fetching improved via reconstruction. Given a *complete*
+install-hook attack whose payload lived in `.sh`/`.bat` files
+(ua-parser-js), a signature database sidestepped the diff engine's
+extension gap entirely — OSV's advisory doesn't care what file extension
+the payload shipped in, so this was, briefly, the one place in this
+comparison where a pure signature lookup had a structural edge over
+chainwatch. That edge closed the same day the gap was found:
+`SOURCE_EXTENSIONS` now recognises `.sh`/`.bat`/`.ps1`/`.cmd`, and OSV's
+edge here reduces to what it is everywhere else in this comparison — slower
+and less available. Given a *complete* denial-of-service-shaped attack
+(colors), no amount of better fetching helps — the dimension set itself has
+no concept of "this never returns," and a signature database is no better
+positioned here either (colors's two GHSA advisories exist and are just as
+un-actionable as chainwatch's own score). This is the one gap in the
+corpus with no signature-database workaround and no diff-engine fix
+available — see recommendation #1.
 
 ## Latency (observational, not a benchmark)
 
@@ -415,34 +434,38 @@ work, not attempted here.
    reliably notices this pattern qualitatively (see
    `malicious/colors/FINDINGS.md`) — the gap is purely that nothing routes
    it into a score.
-2. **`SOURCE_EXTENSIONS` (`src/chainwatch/diff/engine.py`) should include
-   `.sh`, `.bat`, and other common install-time script extensions
-   (`.ps1`, `.cmd` are plausible next candidates) — this is the
-   lowest-effort, most concretely-demonstrated fix in this write-up.**
-   Unlike #1, this isn't a hypothesis about what *would* help — it's a
-   controlled, real rerun: ua-parser-js's reconstructed attack scores
-   MEDIUM (42.5) as chainwatch actually behaves today, because
-   `preinstall.sh`/`.bat` (where the real payload lives) are never
-   enumerated by the diff engine at all. Adding exactly those two
-   extensions to the allowlist, changing nothing else, reaches HIGH (57.5)
-   on the identical attack, same model, same feeds. It's a single frozenset
-   literal, and install-time attacks shipping a `.sh`/`.bat`/`.ps1` payload
-   alongside a thin JS dispatcher are a common, well-documented pattern
-   (this incident is a canonical example) — this fix plausibly generalises
-   well beyond this one corpus entry. See `malicious/ua-parser-js/FINDINGS.md`.
+2. **✅ Implemented (2026-08-10).** `SOURCE_EXTENSIONS`
+   (`src/chainwatch/diff/engine.py`) now includes `.sh`, `.bat`, `.ps1`,
+   and `.cmd` alongside the original JS/TS/Python types. This was the
+   lowest-effort, most concretely-demonstrated fix in this write-up — not a
+   hypothesis about what *would* help, but a controlled, real rerun:
+   ua-parser-js's reconstructed attack scored MEDIUM (42.5) as chainwatch
+   behaved before the fix, because `preinstall.sh`/`.bat` (where the real
+   payload lives) were never enumerated by the diff engine at all. Adding
+   exactly those two extensions to the allowlist, changing nothing else,
+   reached HIGH (57.5) on the identical attack in a controlled experiment —
+   and after the real fix landed, an independent, non-monkey-patched rerun
+   confirmed it: **60.0, HIGH**. A regression test
+   (`tests/unit/test_diff_engine.py::test_install_scripts_are_enumerated`)
+   guards against this regressing. Install-time attacks shipping a
+   `.sh`/`.bat`/`.ps1`/`.cmd` payload alongside a thin JS dispatcher are a
+   common, well-documented pattern (this incident is a canonical example)
+   — this fix plausibly generalises well beyond this one corpus entry. See
+   `malicious/ua-parser-js/FINDINGS.md` for the full before/after.
 3. **`dependency_changes`'s 15% weight is worth revisiting for diluted
    exfiltration-shaped attacks specifically**, or a "known-compromised
    transitive dependency" special-case modifier — flagged in
    `malicious/node-ipc/FINDINGS.md`. This is a narrower, lower-priority fix
    than #1/#2: it only helps node-ipc's diluted pair (the complete attack
-   already reached HIGH without it) and does nothing for colors's or
-   ua-parser-js's category of gap.
+   already reached HIGH without it) and does nothing for colors's category
+   of gap (ua-parser-js's category is now fixed — see #2).
 4. **CI users relying on `--threshold` should not assume the MEDIUM
    boundary (30) is a safe default — but should also not assume a lower
    threshold is a complete fix.** `--threshold 25` would have caught
-   node-ipc's diluted `11.0.0` pair, and `--threshold 40` would have caught
-   ua-parser-js's reconstructed attack as chainwatch scores it today. No
-   `--threshold` value catches colors's reconstructed attack (LLM base
+   node-ipc's diluted `11.0.0` pair. Pre-fix, `--threshold 40` would have
+   been needed to catch ua-parser-js's reconstructed attack (42.5); post-fix
+   it clears the default HIGH bar (60.0) with no special threshold needed.
+   No `--threshold` value catches colors's reconstructed attack (LLM base
    score 2.5) without also flagging essentially every benign diff in the
    corpus — this is a taxonomy gap, not a threshold-tuning problem, and #1
    is the actual fix.
@@ -451,33 +474,38 @@ work, not attempted here.
    tool relying on chainwatch's `malicious_floor` modifier as its primary
    safety net would have missed 3 of 4 incidents in this corpus even with
    live feeds, for years in some cases, and does nothing at all for
-   ua-parser-js (never `MAL-*`, ever). It *notably didn't need to fire* for
-   the LLM layer to reach the correct HIGH verdict on the complete node-ipc
-   attack, but flatmap-stream shows the opposite side of the same coin: the
-   one time it *did* fire, it was the difference between a comfortable HIGH
-   and a thin one (60.0 vs. a hypothetical 56.5 without it) — reinforcing
-   that the LLM layer, not the feed floor, is carrying this tool's primary
+   ua-parser-js (never `MAL-*`, ever, before or after the diff-engine fix).
+   It *notably didn't need to fire* for the LLM layer to reach the correct
+   HIGH verdict on the complete node-ipc or (post-fix) ua-parser-js attacks,
+   but flatmap-stream shows the opposite side of the same coin: the one
+   time it *did* fire, it was the difference between a comfortable HIGH and
+   a thin one (60.0 vs. a hypothetical 56.5 without it) — reinforcing that
+   the LLM layer, not the feed floor, is carrying this tool's primary
    detection capability, with the feed floor as an occasional, unreliably-
    timed assist rather than a mechanism to depend on.
 6. **Reconstruction-and-run is now done for all four incidents in this
-   corpus, via three different sourcing methods.** node-ipc and colors were
+   corpus, via three different sourcing methods — and one of the two gaps
+   it surfaced has already been fixed.** node-ipc and colors were
    legitimate-maintainer self-sabotage with the payload surviving in git.
    event-stream/flatmap-stream was an account hijack with no git history and
    no live base tarball, but the payload survived in a CDN's edge cache long
    enough for the Wayback Machine to crawl it. ua-parser-js was also an
    account hijack, but its *pre*-incident version is still published, so a
-   real base tarball plus vendor-writeup-recovered payload scripts sufficed.
+   real base tarball plus vendor-writeup-recovered payload scripts
+   sufficed — and doing so found the `SOURCE_EXTENSIONS` gap fixed in #2.
    **This corpus's currently-scoped incidents are now exhausted** — every
    incident in `dataset/malicious/` has had its real attack tested for real
-   against both detection layers. See each incident's `SOURCING.md`.
+   against both detection layers, and two of the four (node-ipc,
+   ua-parser-js) have already driven a real fix. See each incident's
+   `SOURCING.md`.
 7. **The ground-truth corpus still needs real positives from incidents
-   beyond these four.** n=5 across four incidents — two clean hits (one
-   LLM-carried, one partly feed-carried), one hit-on-a-technicality held
-   back by a diff-engine gap, one miss that survives complete
-   reconstruction and full diff visibility — is real signal about *what
-   kinds* of gaps and successes exist across three different sourcing
-   methods, but still not a validated recall measurement for the tool in
-   general. The three sourcing methods identified here
+   beyond these four.** n=5 across four incidents — now three clean HIGH
+   hits (one LLM-carried, one partly feed-carried, one that needed a
+   same-day diff-engine fix to get there) and one miss that survives
+   complete reconstruction and full diff visibility — is real signal about
+   *what kinds* of gaps and successes exist across three different
+   sourcing methods, but still not a validated recall measurement for the
+   tool in general. The three sourcing methods identified here
    ("maintainer-sabotage-with-git-history",
    "account-hijack-with-CDN-recoverable-payload-and-no-live-base",
    "account-hijack-with-a-live-pre-incident-base") cover every incident
@@ -538,11 +566,15 @@ though for ua-parser-js, the *baseline* side is a real fetch):
   either side) as *both* directories, then in the "to" copy add
   `malicious/ua-parser-js/evidence/preinstall.js`/`.sh`/`.bat` to the
   package root and set `package.json`'s `scripts.preinstall` to
-  `"start /B node preinstall.js & node preinstall.js"`. The companion
-  `experiment-full-visibility-0.7.28-to-0.7.29.json` (not part of this
-  count — see the limitations note near the top of this document)
-  reproduces the same way, with `chainwatch.diff.engine.SOURCE_EXTENSIONS`
-  additionally patched to include `.sh`/`.bat` before calling `compute_diff()`.
+  `"start /B node preinstall.js & node preinstall.js"`. This reproduces
+  against the *current* codebase (`SOURCE_EXTENSIONS` includes `.sh`/`.bat`
+  as of 2026-08-10) — no patching needed any more. Two companion files
+  preserve the pre-fix state for history, not part of this count:
+  `malicious/ua-parser-js/pre-fix-report-0.7.28-to-0.7.29-RECONSTRUCTED.json`
+  (the same steps above, run against the codebase *before* the fix) and
+  `malicious/ua-parser-js/experiment-full-visibility-0.7.28-to-0.7.29.json`
+  (the pre-fix codebase with `SOURCE_EXTENSIONS` monkey-patched in-process
+  — the diagnostic step that preceded the real fix).
 
 All four are then reproducible by calling
 `chainwatch.diff.engine.compute_diff()` directly on the two resulting

