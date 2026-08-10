@@ -1,7 +1,7 @@
 # Cross-corpus findings: precision, recall, and detection gaps
 
 This is "the write-up" referenced throughout `dataset/README.md` — the
-synthesis across all twelve reports in the corpus, addressing the four
+synthesis across all thirteen reports in the corpus, addressing the four
 research questions from the top-level `README.md`:
 
 1. Which detection layer (LLM, feeds, or both) catches each known attack
@@ -10,60 +10,86 @@ research questions from the top-level `README.md`:
 4. Comparison with signature-based classifiers on the same ground truth
 
 **Read the limitations section before citing any number here.** This
-corpus has three positive examples, not one, and they split into two
+corpus has four positive examples, not one, and they split into three
 categories that a single recall number would blur together:
 
-- **A fetching-completeness miss.** `node-ipc@11.0.0` (registry-fetched,
-  the diluted post-remediation dependency) scores LOW. Reconstructing the
-  complete attack (`node-ipc@10.1.1`, the actual wiper — never published to
-  a fetchable tarball, rebuilt from its exact verified git commit and run
-  directly against chainwatch's pipeline via local directories) flips the
-  result to a decisive HIGH (69.0). Given the whole attack, detection works.
-- **A taxonomy miss.** `colors`'s sabotage commit was reconstructed the same
-  way — complete, real, byte-verified against a live base tarball — and it
-  **still scores LOW (7.5)**, because it's a denial-of-service attack (an
-  infinite loop) and none of chainwatch's five risk dimensions are shaped
-  to detect that. This one isn't fixed by fetching more; it's a genuine
-  blind spot in what the tool measures.
+- **A fetching-completeness miss, since fixed by reconstruction.**
+  `node-ipc@11.0.0` (registry-fetched, the diluted post-remediation
+  dependency) scores LOW. Reconstructing the complete attack
+  (`node-ipc@10.1.1`, the actual wiper — never published to a fetchable
+  tarball, rebuilt from its exact verified git commit and run directly
+  against chainwatch's pipeline via local directories) flips the result to
+  a decisive HIGH (69.0). Given the whole attack, detection works.
+- **A taxonomy miss that survives reconstruction.** `colors`'s sabotage
+  commit was reconstructed the same way — complete, real, byte-verified
+  against a live base tarball — and it **still scores LOW (7.5)**, because
+  it's a denial-of-service attack (an infinite loop) and none of
+  chainwatch's five risk dimensions are shaped to detect that. This one
+  isn't fixed by fetching more; it's a genuine blind spot in what the tool
+  measures.
+- **A hit, reconstructed from a different kind of evidence.**
+  `flatmap-stream@0.1.1` (the transitive payload behind the `event-stream`
+  incident — an account hijack, not a maintainer commit, so there's no git
+  history to pull from) was instead reconstructed from CDN-archaeology
+  evidence (a Wayback-cached unpkg copy, cross-validated against an
+  academic paper's companion dataset) and run the same way: two local
+  directories, real pipeline, no registry fetch. **Scores HIGH (60.0)** —
+  detection works here too, though not purely on the LLM layer's strength
+  alone (see below).
 
 Read together: *does the detection logic work, given the real attack* is
-"it depends which attack" — yes for data-exfiltration-shaped payloads
-(node-ipc), not for denial-of-service-shaped ones (colors). *Can
-chainwatch's registry-based fetching autonomously find these attacks in the
-wild* is no for either, structurally, because npm's unpublish policy
-destroys the evidence before any registry-diffing scanner — chainwatch or
-otherwise — could see it.
+"mostly yes, with one confirmed exception" — data-exfiltration-shaped
+payloads are caught whether reconstructed from git (node-ipc) or from CDN
+archaeology (flatmap-stream); a denial-of-service-shaped payload (colors)
+is not, regardless of source completeness. *Can chainwatch's registry-based
+fetching autonomously find these attacks in the wild* is no for all three,
+structurally, because npm's unpublish policy destroys the evidence before
+any registry-diffing scanner — chainwatch or otherwise — could see it.
 
-All tables are computed directly from the twelve committed `report-*.json`
+All tables are computed directly from the thirteen committed `report-*.json`
 files plus live OSV queries; see "Reproducing this analysis" at the end.
 
 ## The corpus's central limitation, stated up front
 
 Of the four incidents in `dataset/malicious/`, **three had their actual
 malicious release unpublished from npm** before this project could fetch
-and diff it (event-stream, ua-parser-js, colors — see each `SOURCING.md`).
-Every registry-fetched report for those three packages is therefore a diff
-of an *adjacent* version pair, not the attack itself — useful for validating
-non-false-positive behaviour, useless for measuring recall on its own.
+and diff it (event-stream/flatmap-stream, ua-parser-js, colors — see each
+`SOURCING.md`). Every registry-fetched report for those three is therefore a
+diff of an *adjacent* version pair, not the attack itself — useful for
+validating non-false-positive behaviour, useless for measuring recall on
+its own.
 
-**Two of those three incidents (node-ipc, colors) have since had their
-actual attack reconstructed from verified git history and run through the
-real pipeline** — never packaged into an installable tarball, never served
-through a registry (mock or otherwise); the diff engine takes two directory
-paths, so both reconstructions were diffed as local directories, bypassing
-the fetch layer entirely. See `malicious/node-ipc/SOURCING.md` and
-`malicious/colors/SOURCING.md` for the exact method and provenance. The
-third (event-stream/ua-parser-js) can't be reconstructed this way — those
-were account hijacks, and the attacker never pushed to git.
+**All three of those incidents have since had their actual attack payload
+recovered and run through the real pipeline as two local directories,
+bypassing the registry-fetch layer entirely** — but by two different
+methods, not one:
 
-**Three positive examples is still a small sample, and they don't point the
-same direction.** node-ipc's reconstruction flipped a miss into a hit;
-colors's reconstruction stayed a miss for a completely different reason
-(see below). Neither generalises into a validated recall rate. Where
+- **Git-commit reconstruction** (node-ipc, colors): both incidents were
+  legitimate-maintainer self-sabotage, committed to a public repository, so
+  the exact verified commit was applied to a real, still-published base
+  tarball. See `malicious/node-ipc/SOURCING.md` / `malicious/colors/SOURCING.md`.
+- **CDN-archaeology reconstruction** (event-stream/flatmap-stream): an
+  account hijack, never pushed to git — but the malicious `flatmap-stream`
+  file was cached by unpkg's CDN before npm's takedown, recovered via the
+  Wayback Machine, and cross-validated against an academic paper's
+  companion dataset. See `malicious/event-stream/SOURCING.md`.
+
+**`ua-parser-js` remains the one incident not yet run this way** — also an
+account hijack, and its `preinstall.js`/`.sh`/`.bat` payload scripts are
+already recovered from a vendor writeup and sitting in
+`malicious/ua-parser-js/evidence/`, just not yet wired into a
+reconstruction run. See recommendation #5 below.
+
+**Four positive examples is still a small sample, and they don't all point
+the same direction.** node-ipc's reconstruction flipped a miss into a hit;
+flatmap-stream's reconstruction was a hit outright, but one that leans
+partly on a feed rule rather than the LLM layer alone; colors's
+reconstruction stayed a miss for a completely different reason (see below).
+None of this generalises into a validated recall rate on four points. Where
 useful, we widen the lens using live feed queries against the *actual*
 malicious version strings (no tarball needed — feed clients take a version
-string), giving four data points instead of three for the detection-gap and
-signature-comparison questions.
+string), giving more data points for the detection-gap and
+signature-comparison questions than the reconstructed pairs alone.
 
 ## Corpus overview
 
@@ -81,6 +107,7 @@ signature-comparison questions.
 | node-ipc | 10.1.0→11.0.0 | malicious (real compromised dependency, registry-fetched) | 29.5 | LOW |
 | **node-ipc** | **10.1.0→10.1.1** *(reconstructed)* | **malicious** (the actual wiper) | **69.0** | **HIGH** |
 | **colors** | **1.4.0→1.4.44-liberty-2** *(reconstructed)* | **malicious** (the actual sabotage) | **7.5** | **LOW** |
+| **flatmap-stream** | **0.1.0→0.1.1** *(reconstructed)* | **malicious** (the actual bootstrap payload) | **60.0** | **HIGH** |
 
 ## Precision / recall (Figure 1)
 
@@ -89,25 +116,37 @@ Confusion matrix at the default classification rule — **flagged = severity
 
 | | Predicted malicious | Predicted benign |
 |---|---|---|
-| **Actually malicious** | TP = 1 (node-ipc, reconstructed) | FN = 2 (node-ipc registry-fetched; colors, reconstructed) |
+| **Actually malicious** | TP = 2 (node-ipc, reconstructed; flatmap-stream, reconstructed) | FN = 2 (node-ipc registry-fetched; colors, reconstructed) |
 | **Actually benign** | FP = 0 | TN = 9 |
 
-- **Precision:** 1/1 = **100%**
-- **Recall:** 1/3 = **33%**
+- **Precision:** 2/2 = **100%**
+- **Recall:** 2/4 = **50%**
 - **Specificity / true-negative rate:** 9/9 = **100%**
 - **False-positive rate:** 0/9 = **0%**
 
 Read plainly: chainwatch never bucketed a benign diff above LOW, and it
-correctly bucketed the one attack it saw in complete, exfiltration-shaped
-form as HIGH — but it missed both the diluted node-ipc remnant *and* the
-complete colors attack. **Those two misses are not the same finding**, and
-collapsing them into one recall number would hide the more useful result:
+correctly bucketed both attacks it saw in complete form — one
+exfiltration-shaped (node-ipc), one obfuscation/env-gated (flatmap-stream)
+— as HIGH. It missed the diluted node-ipc remnant and the complete colors
+attack. **Those two misses are not the same finding, and neither are the
+two hits** — collapsing all four into one recall number would hide the more
+useful result:
 
-- **node-ipc's miss is a fetching-completeness problem.** chainwatch scored
-  *correctly relative to what it could see*, and what it could see, for the
-  registry-fetched pair, was already-mitigated. Given the complete attack,
-  it scores HIGH. Fixable in principle by better fetching/reconstruction —
-  demonstrated fixed here.
+- **node-ipc's miss is a fetching-completeness problem, demonstrated
+  fixed.** chainwatch scored *correctly relative to what it could see*, and
+  what it could see, for the registry-fetched pair, was already-mitigated.
+  Given the complete attack, it scores HIGH — carried entirely by the LLM
+  layer, no feed rule needed.
+- **flatmap-stream's hit is real, but not purely an LLM-layer story.** The
+  complete attack was recoverable (via CDN archaeology, not git) and scores
+  HIGH — but the LLM base score alone (51.5) only reaches MEDIUM. The
+  composite crosses into HIGH because OSV's `malicious_floor` rule fires for
+  this specific advisory (`MAL-2025-20690`), the only time it fires anywhere
+  in this corpus. Swap in a hypothetical world where that reclassification
+  hadn't happened yet (true for all but the last year of this incident's
+  seven-year history) and the result still lands HIGH here, but only just
+  (56.5, on the Scorecard modifier alone) — a much thinner margin than
+  node-ipc's LLM-carried 69.0. See `malicious/event-stream/FINDINGS.md`.
 - **colors's miss is a taxonomy problem.** The complete, real attack was
   presented to the model and it still scored LOW, because a denial-of-service
   payload (an infinite loop) doesn't match any of chainwatch's five risk
@@ -121,70 +160,97 @@ collapsing them into one recall number would hide the more useful result:
 
 ### What separates a fetching miss from a taxonomy miss, dimension by dimension
 
-| dimension | node-ipc `11.0.0` (fetching miss — LOW) | node-ipc `10.1.1` (reconstructed — HIGH) | colors (reconstructed — still LOW) |
-|---|---|---|---|
-| network_calls | 2.0 | **10.0** (corpus max) | 0.0 |
-| obfuscation | 2.0 | **10.0** (corpus max) | 1.0 |
-| env_conditional | 4.0 | **9.0** | 0.0 |
-| install_hooks | 0.0 | 2.0 | 0.0 |
-| dependency_changes | **9.0** | 1.0 | 0.0 |
-| **llm_base_score** | 29.5 | **69.0** | **2.5** |
+| dimension | node-ipc `11.0.0` (fetching miss — LOW) | node-ipc `10.1.1` (reconstructed — HIGH) | flatmap-stream `0.1.1` (reconstructed — HIGH) | colors (reconstructed — still LOW) |
+|---|---|---|---|---|
+| network_calls | 2.0 | **10.0** (corpus max) | 3.0 | 0.0 |
+| obfuscation | 2.0 | **10.0** (corpus max) | **10.0** (corpus max) | 1.0 |
+| env_conditional | 4.0 | **9.0** | **9.0** | 0.0 |
+| install_hooks | 0.0 | 2.0 | 2.0 | 0.0 |
+| dependency_changes | **9.0** | 1.0 | 1.0 | 0.0 |
+| **llm_base_score** | 29.5 | **69.0** | **51.5** | **2.5** |
+| **risk_score (feed-adjusted)** | 29.5 | 69.0 | **60.0** | 7.5 |
 
 An earlier draft of this write-up, written after only node-ipc's two
 positives existed, proposed **"any single dimension ≥ 7"** as a candidate
 rule — it happened to hold for both node-ipc pairs, on different dimensions
-each time. **colors refutes it: its highest dimension score is 1.0.** That
-correction is worth keeping visible rather than quietly fixing — it's the
-clearest demonstration in this write-up of why n=2 wasn't enough to
-generalise from, and n=3 still isn't. The dimension set's blind spot for
-denial-of-service attacks isn't a threshold-tuning problem; no per-dimension
-or composite-score rule built from these five dimensions can catch colors,
-because none of the five ever fire on it. Full breakdown of the
-`dependency_changes` weight-capping issue specifically (which *is* a
-threshold/weighting problem, for node-ipc's diluted pair only) in
-`malicious/node-ipc/FINDINGS.md`.
+each time, and it holds for flatmap-stream too (`obfuscation`/
+`env_conditional` both ≥ 9). **colors refutes it: its highest dimension
+score is 1.0.** That correction is worth keeping visible rather than
+quietly fixing — it's the clearest demonstration in this write-up of why
+n=2 wasn't enough to generalise from, and n=4 still isn't (three points
+consistent with a rule and one clean counterexample is not a validated
+rule). The dimension set's blind spot for denial-of-service attacks isn't a
+threshold-tuning problem; no per-dimension or composite-score rule built
+from these five dimensions can catch colors, because none of the five ever
+fire on it. Full breakdown of the `dependency_changes` weight-capping issue
+specifically (which *is* a threshold/weighting problem, for node-ipc's
+diluted pair only) in `malicious/node-ipc/FINDINGS.md`.
+
+Worth flagging separately: flatmap-stream's `llm_base_score` (51.5) clears
+the "any dimension ≥ 7" bar comfortably but does *not* clear the
+55-point HIGH severity threshold on its own — it takes the feed-adjusted
+`risk_score` (60.0, after the OSV and Scorecard modifiers) to cross into
+HIGH. A per-dimension or raw-LLM-score rule would still correctly flag this
+one as suspicious even without the feed boost; the *severity bucket*
+specifically is where the feed layer's contribution shows up. See
+`malicious/event-stream/FINDINGS.md` for the full modifier trace.
 
 ## RQ1 — which detection layer catches each known attack
 
-For event-stream and ua-parser-js, "LLM layer" performance can't be measured
-directly against the real payload — attacker account hijacks, never pushed
-to git, structurally unrecoverable. node-ipc and colors *were* recoverable
-via git, so both layers were tested for real on all three positive pairs.
-Results, live-queried/run for this write-up:
+For ua-parser-js, "LLM layer" performance still can't be measured directly
+against the real payload — attacker account hijack, never pushed to git,
+and its recovered `preinstall` scripts haven't yet been wired into a
+reconstruction run (see recommendation #5). node-ipc and colors were
+recoverable via git; event-stream's payload (`flatmap-stream`) turned out to
+be recoverable a different way — CDN archaeology, not git, since that
+incident was also an account hijack — so all three of those *were* tested
+for real. Results, live-queried/run for this write-up:
 
 | Incident | LLM layer | OSV feed (queried against the real malicious version) | Ever `MAL-*`? |
 |---|---|---|---|
-| event-stream / flatmap-stream | Not tested — attack diff unrecoverable even via git (account hijack, never pushed) | `GHSA-mh6f-8j2x-4483` (event-stream); `GHSA-9x64-5r7x-2q53` + **`MAL-2025-20690`** (flatmap-stream) | **Yes — flatmap-stream only, and only since 2025-08-14** |
-| ua-parser-js | Not tested — same reason | `GHSA-pjwm-rvh2-c87w` | No, never |
+| event-stream / flatmap-stream (reconstructed, `0.1.1`) | **Tested for real:** `obfuscation=10.0`, `env_conditional=9.0`, free-text: *"a definitive, confirmed malicious supply chain attack"*, base score 51.5 (MEDIUM on its own), feed-adjusted **60.0, HIGH** | `GHSA-mh6f-8j2x-4483`, `GHSA-9x64-5r7x-2q53`, **`MAL-2025-20690`** | **Yes — flatmap-stream only, and only since 2025-08-14** |
+| ua-parser-js | Not tested — payload recovered (see `evidence/`) but not yet reconstructed-and-run | `GHSA-pjwm-rvh2-c87w` | No, never |
 | colors (reconstructed, `1.4.44-liberty-2`) | **Tested for real:** all 5 dimensions ≤1.0, free-text correctly names the incident but calls it "malicious in effect" without that reaching any dimension, base score 2.5, **LOW** | `GHSA-5rqg-jm4f-cqx7`, `GHSA-gh88-3pxp-6fm8` | No, never |
 | node-ipc (registry-fetched, `11.0.0`) | Tested for real: `dependency_changes=9.0`, free-text names the incident, base score 29.5, **LOW** | `GHSA-3mpp-xfvh-qh37` | No, never |
 | node-ipc (reconstructed, `10.1.1`) | **Tested for real:** `network_calls=10.0`, `obfuscation=10.0`, free-text: *"confirmed, unambiguous malicious payload"*, base score 69.0, **HIGH** | `GHSA-97m3-w2cp-4xx6` | No, never |
 
 **The result that most needed the complete attack to become visible: given
 node-ipc's full payload, both layers agree it's malicious and the composite
-score reflects that (HIGH).** Given only node-ipc's post-remediation
-remnant, both layers still find real signal (dependency_changes=9.0; a real
-if lower-severity GHSA) but the composite stays LOW — a fetching-completeness
-gap. **colors shows that "complete attack" isn't sufficient on its own**:
-even with the full, real sabotage commit, the LLM layer's free-text
+score reflects that (HIGH), carried by the LLM layer alone.** Given only
+node-ipc's post-remediation remnant, both layers still find real signal
+(dependency_changes=9.0; a real if lower-severity GHSA) but the composite
+stays LOW — a fetching-completeness gap. **flatmap-stream's complete attack
+also reaches HIGH, but through a different mechanism**: the LLM layer finds
+strong signal (obfuscation and env-gating both correctly scored ≥9) yet its
+base score alone only clears MEDIUM — it's the OSV feed, reporting
+`malicious` on this one advisory, that pushes the composite over the HIGH
+threshold. **colors shows that "complete attack" isn't sufficient on its
+own**: even with the full, real sabotage commit, the LLM layer's free-text
 correctly recognises it while its scored dimensions don't, and the OSV feed
 finds real advisories that (like every advisory in this corpus except one)
 never reach `MAL-*`. Both layers "know" about colors in some sense; neither
 translates that knowledge into a flagged composite score.
 
-**The finding that generalises across all four incidents, not just the one
+**The finding that generalises across all four incidents, not just the ones
 we could fully pipeline-test:** chainwatch's aggregator only floors the
 score to the HIGH range when a feed reports `malicious` — which chainwatch
 maps from an OSV `MAL-*` prefix specifically (`analyzer/feeds.py`). Of four
 confirmed, publicly-documented supply-chain attacks, **only one has ever
-received a `MAL-*` classification, and that happened three and a half years
-after disclosure.** Even a chainwatch instance polling OSV in real time
-today would still get `suspicious`, not `malicious`, for three of these four
-incidents — the feed-floor rule's practical hit rate on this corpus's ground
-truth is 1-in-4, and even that one hit took years. (Notably, node-ipc's HIGH
-result above was reached *without* the feed-floor rule ever firing — OSV
-returned `suspicious`, not `malicious`, for the reconstructed pair too. The
-LLM layer alone carried that result.)
+received a `MAL-*` classification, and that happened nearly seven years
+after disclosure** (2018-11-20 → 2025-08-14, live-verified against OSV's own
+`published` field for this write-up — an earlier draft of this document
+mis-stated this gap as "three and a half years"; corrected here). Even a
+chainwatch instance polling OSV in real time today would still get
+`suspicious`, not `malicious`, for three of these four incidents — the
+feed-floor rule's practical hit rate on this corpus's ground truth is
+1-in-4, and even that one hit took most of a decade. Notably, node-ipc's
+HIGH result above was reached *without* the feed-floor rule ever firing —
+OSV returned `suspicious`, not `malicious`, for the reconstructed pair too,
+and the LLM layer alone carried that result. **flatmap-stream's HIGH result
+is the opposite case**: it's the one pair in this corpus where the
+feed-floor rule's rare, years-late hit actually mattered to the outcome —
+run this same query before 2025-08-14 and the composite would have landed
+at 56.5 (still HIGH, but on the Scorecard modifier's back, not OSV's).
 
 ## RQ2 — detection gap
 
@@ -232,27 +298,33 @@ report. Scored against this corpus's four incidents:
   advisory, eventually.
 - **Confirmed-malware (`MAL-*`) coverage: 1/4 (25%), and slow.** Only
   flatmap-stream has ever been reclassified from a generic GHSA advisory to
-  a `MAL-*` entry, three and a half years after disclosure (see RQ1).
+  a `MAL-*` entry, nearly seven years after disclosure (see RQ1).
 - **Speed: highly variable, 8 hours to 11 weeks** (see RQ2), with no
   advisory ever available at the moment of attack publication.
 
 The comparison isn't "OSV vs. chainwatch" — chainwatch *uses* OSV as one of
 three feed inputs. The more useful framing: **OSV is reliable but slow, and
 rarely reaches the confidence tier (`MAL-*`) that chainwatch's own
-aggregator treats as decisive** — never, in this corpus, for a version
-chainwatch itself scored HIGH or a version whose payload was a
-denial-of-service rather than exfiltration. The LLM layer's structural
-advantage over a pure signature database is availability at publish time
-*and*, per node-ipc's reconstructed pair, the ability to reach a correct
-HIGH verdict entirely on its own, without the feed-floor rule ever firing.
-Its structural disadvantage has two distinct shapes, not one: given a
-*diluted* remnant of an exfiltration-shaped attack (node-ipc `11.0.0`), the
-strongest per-dimension finding (9.0/10) didn't clear the aggregate
-severity bar, but *would* if fetching improved. Given a *complete*
-denial-of-service-shaped attack (colors), no amount of better fetching
-helps — the dimension set itself has no concept of "this never returns," and
-a signature database is no better positioned here either (colors's two GHSA
-advisories exist and are just as un-actionable as chainwatch's own score).
+aggregator treats as decisive** — in this corpus, only for flatmap-stream,
+and only years after the fact. The one case where it *did* reach `MAL-*` in
+time to matter (flatmap-stream, queried live for this write-up) shows what
+that tier is worth when it fires: it's the difference between a thin
+56.5-MEDIUM-adjacent HIGH and a more comfortable 60.0 HIGH — a real but
+modest contribution, not the load-bearing signal. The LLM layer's
+structural advantage over a pure signature database is availability at
+publish time *and*, per node-ipc's reconstructed pair, the ability to reach
+a correct HIGH verdict entirely on its own, without the feed-floor rule ever
+firing — flatmap-stream shows that same layer finding strong signal
+(obfuscation/env-gating both ≥9) even where it *doesn't* single-handedly
+carry the severity bucket. Its structural disadvantage has two distinct
+shapes, not one: given a *diluted* remnant of an exfiltration-shaped attack
+(node-ipc `11.0.0`), the strongest per-dimension finding (9.0/10) didn't
+clear the aggregate severity bar, but *would* if fetching improved. Given a
+*complete* denial-of-service-shaped attack (colors), no amount of better
+fetching helps — the dimension set itself has no concept of "this never
+returns," and a signature database is no better positioned here either
+(colors's two GHSA advisories exist and are just as un-actionable as
+chainwatch's own score).
 
 ## Latency (observational, not a benchmark)
 
@@ -296,23 +368,38 @@ work, not attempted here.
    (not `GHSA-*`) means it will rarely fire in practice**, per RQ1/RQ4 — a
    tool relying on chainwatch's `malicious_floor` modifier as its primary
    safety net would have missed 3 of 4 incidents in this corpus even with
-   live feeds, for years in some cases, and *notably didn't need to fire*
-   for the LLM layer to reach the correct HIGH verdict on the complete
-   node-ipc attack — reinforcing that the LLM layer, not the feed floor, is
-   carrying this tool's actual detection capability, where it works at all.
-5. **Reconstruction-and-run is done for both node-ipc and colors** — the
-   two incidents in this corpus where the attacker was the legitimate
-   maintainer and the payload survives in git. event-stream and ua-parser-js
-   can't be reconstructed the same way (account hijacks, never pushed) and
-   remain limited to the secondary-source evidence in their `evidence/`
-   directories.
+   live feeds, for years in some cases. It *notably didn't need to fire* for
+   the LLM layer to reach the correct HIGH verdict on the complete node-ipc
+   attack, but flatmap-stream shows the opposite side of the same coin: the
+   one time it *did* fire, it was the difference between a comfortable HIGH
+   and a thin one (60.0 vs. a hypothetical 56.5 without it) — reinforcing
+   that the LLM layer, not the feed floor, is carrying this tool's primary
+   detection capability, with the feed floor as an occasional, unreliably-
+   timed assist rather than a mechanism to depend on.
+5. **Reconstruction-and-run is done for node-ipc, colors, and now
+   event-stream/flatmap-stream** — three of the four incidents in this
+   corpus, via two different methods. node-ipc and colors were
+   legitimate-maintainer self-sabotage with the payload surviving in git.
+   event-stream/flatmap-stream was an account hijack with no git history,
+   but the payload survived in a CDN's edge cache long enough for the
+   Wayback Machine to crawl it, recovered here and cross-validated against
+   an academic paper's companion dataset. **`ua-parser-js` is the one
+   incident left** — also an account hijack, and its payload scripts
+   (`preinstall.js`/`.sh`/`.bat`) are already recovered from a vendor
+   writeup and sitting in `malicious/ua-parser-js/evidence/`, just not yet
+   run through this same directory-reconstruction mechanic. That's the
+   lowest-effort remaining item in this list: the sourcing work is done,
+   only the run is missing.
 6. **The ground-truth corpus still needs more real positives beyond these
-   two incidents.** n=3 across two incidents, with the two misses arising
-   from different mechanisms, is real signal about *what kinds* of gaps
-   exist — but still not a validated recall measurement for the tool in
-   general, and can't be until attacks outside the
-   "maintainer-sabotage-with-git-history" and "account-hijack-with-a-
-   registry-diffable-remnant" categories are added.
+   three incidents.** n=4 across three incidents, with two hits arising from
+   different mechanisms (LLM-carried vs. partly feed-carried) and one miss
+   that survives complete reconstruction, is real signal about *what kinds*
+   of gaps and successes exist — but still not a validated recall
+   measurement for the tool in general, and can't be until `ua-parser-js` is
+   added (closing out the two categories identified so far) and attacks
+   outside both the "maintainer-sabotage-with-git-history" and
+   "account-hijack-with-recoverable-secondary-evidence" categories are
+   found.
 
 ## Reproducing this analysis
 
@@ -342,8 +429,8 @@ npm registry publish timestamps (`time` field) were fetched from
 `SOURCING.md` for the exact commit/version provenance those timestamps
 attach to.
 
-**Two of the twelve reports are not reproducible via `chainwatch diff`**
-(there's no real tarball to fetch for either):
+**Three of the thirteen reports are not reproducible via `chainwatch diff`**
+(there's no real tarball to fetch for any of the three):
 
 - `node-ipc/report-10.1.0-to-10.1.1-RECONSTRUCTED.json` — apply
   `malicious/node-ipc/evidence/commit-847047cf7f81-relevant.diff` to a real,
@@ -353,8 +440,18 @@ attach to.
   `evidence/american.js` and `evidence/index.js` directly, which are
   already the exact post-sabotage file contents) to a real, still-published
   `colors@1.4.0` tarball.
+- `event-stream/report-flatmap-stream-0.1.0-to-0.1.1-RECONSTRUCTED.json` —
+  no base tarball exists to apply anything to (npm serves only a
+  security-holding placeholder for every `flatmap-stream` version string,
+  confirmed via direct registry check). Instead, copy
+  `malicious/event-stream/evidence/flatmap-stream-0.1.0-index.min.js` into
+  an `0.1.0/index.min.js` directory as the "from" side, and
+  `flatmap-stream-0.1.1-index.min.js` + `test-data.js` (as
+  `0.1.1/index.min.js` + `0.1.1/test/data.js`) as the "to" side.
 
-Both are then reproducible by calling `chainwatch.diff.engine.compute_diff()`
-directly on the two resulting directories (bypassing the registry-fetch
-layer entirely, not mocking it) — see each incident's `SOURCING.md` for the
-full method and why it was built this way.
+All three are then reproducible by calling
+`chainwatch.diff.engine.compute_diff()` directly on the two resulting
+directories (bypassing the registry-fetch layer entirely, not mocking it) —
+see each incident's `SOURCING.md` for the full method and why it was built
+this way. Feed lookups (OSV/Rekor/Scorecard) still hit the real APIs in all
+three cases; only the tarball fetch is bypassed.

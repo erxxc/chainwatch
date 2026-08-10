@@ -65,3 +65,34 @@ above). What was likely true is that *running* it does nothing observable
 without `test/data`'s specific ciphertext and the Copay-specific env var, so
 it *looks* inert under casual inspection — but the code itself is the load-bearing
 first stage of the attack, not a placeholder. `SOURCING.md` has been updated.
+
+## Reconstruction run (2026-08-10)
+
+Same "diff two local directories, bypass the registry fetch entirely"
+mechanic used for `node-ipc`/`colors` (see their `evidence/README.md`), but
+sourced differently — there is no live base tarball for `flatmap-stream`
+anywhere (npm serves only a security-holding placeholder for every version
+string, confirmed via a direct registry check the day of this run), so the
+"before" side comes from the same CDN-archaeology/paper-corpus evidence
+already committed here, not a real npm download:
+
+| local directory | contents | source |
+|---|---|---|
+| `0.1.0/index.min.js` | `flatmap-stream-0.1.0-index.min.js` verbatim | `es-incident/attack-data` (no live CDN capture of `0.1.0` exists — see table above) |
+| `0.1.1/index.min.js` | `flatmap-stream-0.1.1-index.min.js` verbatim | Wayback-recovered unpkg cache, cross-validated against the paper corpus |
+| `0.1.1/test/data.js` | `test-data.js` verbatim | `es-incident/attack-data`; module path resolved from the hex-decoded `require(e("2e2f746573742f64617461"))` → `./test/data` in `payload_a` |
+
+Before running, every file placed in either directory was re-hashed and
+checked against the SHA256 values already published in the table above —
+byte-identical, same fidelity guarantee as the git-commit-based
+reconstructions.
+
+No `package.json` was recoverable for either version from any source
+checked (unlike `node-ipc`/`colors`, where a real base tarball supplied
+one) — see "Still missing" in `SOURCING.md`. It was not fabricated; the
+diff engine handles its absence gracefully (metadata-diff fields all read
+empty/false, correctly, since there's nothing to compare), and the omission
+is disclosed here rather than papered over with an invented manifest.
+
+Result: **60.0/100, HIGH** — `dataset/malicious/event-stream/report-flatmap-stream-0.1.0-to-0.1.1-RECONSTRUCTED.json`.
+Full breakdown in `../FINDINGS.md`.

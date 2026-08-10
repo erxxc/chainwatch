@@ -96,8 +96,49 @@ This is real payload code, not a full registry tarball — the composed
 `package.json`, complete `test/data` ciphertext resolved, etc.) are still not
 reconstructable, and `test-data.js`'s two AES-256 blobs remain encrypted
 (the key only resolves inside a Copay release build). Sufficient for citing
-and statically describing the attack; not sufficient to run through
-chainwatch's registry-fetch pipeline.
+and statically describing the attack; not sufficient to fetch and diff
+through chainwatch's *registry* pipeline — but, as it turns out, sufficient
+to run through the rest of the real pipeline directly. See "Reconstructed
+pair" below.
+
+## Reconstructed pair — flatmap-stream's real payload, run for real (2026-08-10)
+
+Same bypass-the-registry-fetch mechanic as the `node-ipc`/`colors`
+reconstructions (see `malicious/node-ipc/SOURCING.md`), applied for the
+first time to a payload sourced from CDN archaeology rather than git
+history — there's no git repo behind `flatmap-stream` to pull a commit from,
+and no live base tarball either (npm serves only a security-holding
+placeholder for every version string today, confirmed via a direct registry
+check). The two recovered files above (`flatmap-stream-0.1.0-index.min.js`,
+`flatmap-stream-0.1.1-index.min.js`, plus `test-data.js` as the new
+`test/data.js` module `0.1.1`'s loader requires) were placed into two local
+directories, re-verified byte-for-byte against the SHA256 values in
+`evidence/README.md`, and diffed/analysed/feed-queried directly — never
+packaged into an installable tarball, never served through a registry (mock
+or otherwise). Full method and directory layout in `evidence/README.md`.
+
+| pair | role | report |
+|---|---|---|
+| `0.1.0 → 0.1.1` *(reconstructed)* | **flatmap-stream's real bootstrap payload** | `report-flatmap-stream-0.1.0-to-0.1.1-RECONSTRUCTED.json` |
+
+**Result: 60.0/100, HIGH.** Unlike `colors`'s reconstruction, this is a hit,
+not a taxonomy miss — `obfuscation` and `env_conditional` both scored high
+(10.0, 9.0), and OSV's `malicious_floor` rule fired for real (the one
+incident in this whole corpus where it ever does — see
+`dataset/findings/README.md`). Unlike `node-ipc`'s reconstruction, the HIGH
+verdict here isn't carried by the LLM layer alone: the LLM base score alone
+(51.5) would only reach MEDIUM, and it's the OSV floor plus a Scorecard
+penalty that push it into HIGH. See `FINDINGS.md` for the full breakdown,
+including a caveat on what that Scorecard score is actually measuring for
+an unpublished package.
+
+This also means the framing in "Research finding" above needs one
+amendment: a diff-level scanner given `flatmap-stream`'s payload directly
+*is* structurally capable of catching it — the "blind to transitive-dep
+attacks" problem described there is about chainwatch's *registry-walking*
+step never fetching `flatmap-stream` on `event-stream`'s behalf in the
+first place, not about the LLM/feed layers being unable to recognise the
+payload once it's in front of them.
 
 ## Still missing / future work
 
@@ -106,6 +147,14 @@ chainwatch's registry-fetch pipeline.
   jsDelivr, or Wayback's tarball crawl (confirmed via direct CDX lookups).
 - `flatmap-stream@0.1.2`'s own file diff versus `0.1.1` (unpkg never
   successfully served any file from `0.1.2`, per the archived crawl attempts).
+- No `package.json` for `flatmap-stream` at any version was ever
+  archived (checked via CDX; not even a 404 crawl attempt exists for it,
+  only for `index.min.js`/`test/data`/`perf-test.js`) — the reconstructed
+  pair above runs without one; see `evidence/README.md`.
 - The two AES-256 ciphertext blobs in `test-data.js` decrypted to plaintext.
+- `ua-parser-js`'s payload (`evidence/` in that package's directory already
+  holds the recovered `preinstall.js`/`.sh`/`.bat` scripts) has not yet
+  been run through this same directory-reconstruction mechanic — the
+  remaining not-yet-attempted case in the corpus's account-hijack category.
 - Contacting npm Inc. directly (out of scope for this pass — the standard
   public-source options above were exhausted first, per project direction).

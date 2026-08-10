@@ -89,28 +89,33 @@ available registry-diffable pairs actually scored.
 | Package | Pair(s) run | Attack type | Registry-diffable? | Actual result |
 |---|---|---|---|---|
 | event-stream | 3.3.4→3.3.5, 3.3.5→4.0.0 | Maintainer handoff, crypto theft (2018) | No — `3.3.6` unpublished | LOW (benign-adjacent control) |
+| flatmap-stream | 0.1.0→0.1.1 *(reconstructed)* | Same incident, the actual transitive payload | No — unpublished (npm serves only a security-holding placeholder for every version string); rebuilt from CDN-archaeology evidence (Wayback-cached, cross-validated against a paper's companion dataset) and diffed locally (never packaged/served) | **HIGH, 60.0/100** |
 | ua-parser-js | 0.7.28→0.7.30, 0.7.30→0.7.31 | Account compromise, cryptominer (2021) | No — malicious versions unpublished | LOW (benign-adjacent control) |
 | colors | 1.3.3→1.4.0 | Maintainer protest-ware, infinite loop (2022) | No — sabotage never republished | LOW (benign-adjacent control) |
 | colors | 1.4.0→1.4.44-liberty-2 *(reconstructed)* | Same incident, the complete sabotage | No — unpublished; rebuilt from the exact verified git commit and diffed locally (never packaged/served) | **LOW, 7.5/100 — still missed, even complete** |
 | node-ipc | 10.1.0→11.0.0 | Maintainer protest-ware, destructive wiper (2022) | **Yes** — compromised `peacenotwar` dep still on registry | LOW, 29.5/100 — 0.5 points under MEDIUM |
 | node-ipc | 10.1.0→10.1.1 *(reconstructed)* | Same incident, the complete wiper | No — unpublished; rebuilt from the exact verified git commit and diffed locally (never packaged/served) | **HIGH, 69.0/100** |
 
-node-ipc and colors are the two incidents with a real, complete attack diff
-run through the pipeline via reconstruction from verified git history — and
-they disagree in the most useful possible way. node-ipc's complete attack
-scores far more severely than its diluted registry remnant (LOW → HIGH):
-the miscalibration was in what the registry-fetch layer could see, not in
-the model's judgement, and reconstruction fixes it. colors's complete
-attack scores LOW regardless of completeness, because it's a
-denial-of-service payload (an infinite loop) and none of chainwatch's five
-risk dimensions — network calls, obfuscation, install hooks, env
-conditionals, dependency changes — are built to detect that, even though
-the LLM's free-text summary correctly identifies the incident. One miss is
-fixable by better fetching; the other needs a different risk dimension.
-Together they're the corpus's most significant finding so far. A
-false-positive baseline (4 benign pairs, zero severity-level false
-positives) lives in `dataset/benign/`. Full detail, raw JSON reports, and
-reproduction commands: `dataset/README.md`.
+node-ipc, colors, and event-stream/flatmap-stream are the three incidents
+with a real, complete attack diff run through the pipeline via
+reconstruction — node-ipc and colors from verified git history,
+flatmap-stream from CDN-archaeology evidence instead (that incident was an
+account hijack, never pushed to git) — and they disagree in useful ways.
+node-ipc's complete attack scores far more severely than its diluted
+registry remnant (LOW → HIGH), carried entirely by the LLM layer: the
+miscalibration was in what the registry-fetch layer could see, not in the
+model's judgement, and reconstruction fixes it. flatmap-stream's complete
+attack also reaches HIGH, but leans partly on a rare OSV `malicious_floor`
+hit (the one time it fires anywhere in this corpus) rather than the LLM
+layer alone. colors's complete attack scores LOW regardless of
+completeness, because it's a denial-of-service payload (an infinite loop)
+and none of chainwatch's five risk dimensions — network calls, obfuscation,
+install hooks, env conditionals, dependency changes — are built to detect
+that, even though the LLM's free-text summary correctly identifies the
+incident. Not every miss has the same fix, and not every hit is carried the
+same way. A false-positive baseline (4 benign pairs, zero severity-level
+false positives) lives in `dataset/benign/`. Full detail, raw JSON reports,
+and reproduction commands: `dataset/README.md`.
 
 ## Development
 
