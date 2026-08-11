@@ -85,13 +85,14 @@ chainwatch report dataset/malicious/event-stream/report-3.3.4-to-3.3.5.json
 
 ## Ground Truth Corpus
 
-Four historical incidents, each with a `SOURCING.md` (why these versions),
-`FINDINGS.md` (per-pair analysis), and real pipeline-run reports. In three
-of the four, the actual malicious release was unpublished from npm before
-this project could diff it at the registry level — see each `SOURCING.md`
-for what was recovered from git history / CDN archives / public writeups
-instead (`evidence/` in each directory), and each `FINDINGS.md` for what the
-available registry-diffable pairs actually scored.
+Five historical incidents, each with a `SOURCING.md` (why these versions),
+`FINDINGS.md` (per-pair analysis), and real pipeline-run reports. In four
+of the five, the actual malicious release was unpublished (or, for `ctx`,
+deleted outright) before this project could diff it at the registry level —
+see each `SOURCING.md` for what was recovered from git history / CDN
+archives / independent archives / public writeups instead (`evidence/` in
+each directory), and each `FINDINGS.md` for what the available
+registry-diffable pairs actually scored.
 
 | Package | Pair(s) run | Attack type | Registry-diffable? | Actual result |
 |---|---|---|---|---|
@@ -103,31 +104,41 @@ available registry-diffable pairs actually scored.
 | colors | 1.4.0→1.4.44-liberty-2 *(reconstructed)* | Same incident, the complete sabotage | No — unpublished; rebuilt from the exact verified git commit and diffed locally (never packaged/served) | **MEDIUM, 35.0/100** — originally 7.5/LOW, missed outright; fixed by two code changes (see below) |
 | node-ipc | 10.1.0→11.0.0 | Maintainer protest-ware, destructive wiper (2022) | **Yes** — compromised `peacenotwar` dep still on registry | **MEDIUM, 30.0/100** — originally 29.5/LOW, 0.5 points under MEDIUM; crossed by the same two fixes that resolved `colors` |
 | node-ipc | 10.1.0→10.1.1 *(reconstructed)* | Same incident, the complete wiper | No — unpublished; rebuilt from the exact verified git commit and diffed locally (never packaged/served) | **HIGH, 62.5/100** (originally 69.0; rerun under the current weight matrix — still comfortably HIGH) |
+| ctx (PyPI) | 0.1.2→0.1.2-1 *(reconstructed)* | Account takeover, environment-variable exfiltration (2022) | No — the entire PyPI project was deleted, not just the malicious versions; both sides rebuilt from independent archives (Software Heritage + Wayback Machine) and diffed locally | **MEDIUM, 41.5/100** — entirely LLM-driven, zero feed contribution |
+| ctx (PyPI) | 0.1.2→0.2.5 *(reconstructed)* | Same incident, the final/complete malicious release | Same as above | **MEDIUM, 52.0/100** — entirely LLM-driven, zero feed contribution; the corpus's first ground-truth positive sourced independently of every fix built to catch it |
 
-**As of 2026-08-10, every one of these five malicious-labelled pairs scores
-above LOW — 100% precision, 100% recall on this specific corpus** — but
-read that as "every gap this corpus surfaced has a fix," not as a general
-detection guarantee. node-ipc's complete attack scores far more severely
-than its diluted registry remnant (LOW → HIGH) purely by having the
-complete artifact — no code changed, reconstruction alone fixed it, and the
-result is carried entirely by the LLM layer. flatmap-stream's complete
-attack also reaches HIGH, but leans partly on a rare OSV `malicious_floor`
-hit (the one time it fires anywhere in this corpus). ua-parser-js's
-complete attack needed one code fix — chainwatch's diff engine didn't
-recognise `.sh`/`.bat` as source files, so the two scripts carrying the
-actual payload were never enumerated; widening `SOURCE_EXTENSIONS` closed
-that gap. colors and node-ipc's diluted registry pair both needed *two*
-further code changes that didn't exist until this session: a sixth risk
+**As of 2026-08-11, every one of these seven malicious-labelled pairs
+scores above LOW — 100% precision, 100% recall on this specific corpus** —
+but read that as "every gap this corpus surfaced has a fix," not as a
+general detection guarantee. node-ipc's complete attack scores far more
+severely than its diluted registry remnant (LOW → HIGH) purely by having
+the complete artifact — no code changed, reconstruction alone fixed it,
+and the result is carried entirely by the LLM layer. flatmap-stream's
+complete attack also reaches HIGH, but leans partly on a rare OSV
+`malicious_floor` hit (the one time it fires anywhere in this corpus).
+ua-parser-js's complete attack needed one code fix — chainwatch's diff
+engine didn't recognise `.sh`/`.bat` as source files, so the two scripts
+carrying the actual payload were never enumerated; widening
+`SOURCE_EXTENSIONS` closed that gap. colors and node-ipc's diluted
+registry pair both needed *two* further code changes: a sixth risk
 dimension, `resource_exhaustion` (necessary — the model then scores
 colors's infinite loop a perfect 10/10 — but not sufficient on its own,
 since the weighted-sum formula caps what one dimension can contribute),
 plus a new aggregator rule, `_apply_dimension_floor` (floors the score to
 MEDIUM when any one dimension is both near-maximal and near-certain).
 **Both of those fixes were designed by observing this exact corpus's
-failures and validated only against this exact corpus** — real validation,
-but not independent validation. See `dataset/findings/README.md`'s
+failures and validated only against this exact corpus.** `ctx` (PyPI,
+added 2026-08-11) is a real, independently-sourced counter-check on that
+caveat — reconstructed after both fixes already existed — and it
+classifies correctly using neither of them: its attack shape (import-time
+credential exfiltration, no install hook, no DoS component) never engages
+`resource_exhaustion` or `_apply_dimension_floor` at all, so both of its
+scores come entirely from the original five dimensions. That's real
+evidence the rest of the pipeline generalises; it is **not** evidence that
+those two specific mechanisms do — see `dataset/findings/README.md`'s
 "overfitting caveat" and recommendation #7 before treating 100% recall as
-more than "every known gap in this n=14 corpus is closed." Not every miss
+more than "every known gap in this n=16 corpus is closed, and one
+out-of-corpus check on the rest of the pipeline passed." Not every miss
 had the same fix, and not every hit is carried the same way. A
 false-positive baseline (4 benign pairs, zero severity-level false
 positives) lives in

