@@ -77,12 +77,40 @@ the same real base and you get the same result.
 |---|---|---|
 | `1.4.0 → 1.4.44-liberty-2` *(reconstructed)* | **the actual sabotage commit** | `report-1.4.0-to-1.4.44-liberty-2-RECONSTRUCTED.json` |
 
-**Result: 7.5/100, LOW** — and unlike node-ipc's reconstruction, this
-*isn't* a fetching-completeness story. This is the complete, real, unedited
-attack, and it still scores LOW. See `FINDINGS.md` for why: none of
-chainwatch's five risk dimensions are shaped to detect "this code hangs the
-process forever" — the taxonomy (network calls, obfuscation, install hooks,
-env conditionals, dependency changes) was built around data-exfiltration-
-and credential-theft-shaped attacks, and a denial-of-service payload doesn't
-match any of them, even when the LLM's own free-text summary correctly
-identifies it as "malicious in effect."
+**First result (pre-fix): 7.5/100, LOW** — and unlike node-ipc's
+reconstruction, this *wasn't* a fetching-completeness story. This was the
+complete, real, unedited attack, and it still scored LOW. See `FINDINGS.md`
+for why: none of chainwatch's five risk dimensions were shaped to detect
+"this code hangs the process forever" — the taxonomy (network calls,
+obfuscation, install hooks, env conditionals, dependency changes) was built
+around data-exfiltration- and credential-theft-shaped attacks, and a
+denial-of-service payload didn't match any of them, even when the LLM's own
+free-text summary correctly identified it as "malicious in effect." That
+pre-fix report is preserved at
+`pre-dos-fix-report-1.4.0-to-1.4.44-liberty-2-RECONSTRUCTED.json` for
+citation.
+
+## The fix (2026-08-10) and the confirmed result
+
+Two real code changes landed the same day, both directly motivated by this
+finding:
+
+1. A sixth risk dimension, `resource_exhaustion`, added to
+   `models.DIMENSIONS` and the LLM prompt (`src/chainwatch/analyzer/llm.py`).
+   Rerunning with just this fix: `resource_exhaustion` scores a perfect
+   10.0 at confidence 1.0 — but the composite only reaches 25.0, still LOW,
+   because the weighted-sum formula caps a single dimension's contribution
+   at `weight × 100` (20 points at this dimension's 20% weight). Necessary,
+   not sufficient.
+2. A same-day aggregator rule, `_apply_dimension_floor`
+   (`src/chainwatch/analyzer/aggregator.py`): any single dimension scoring
+   ≥9.0 at confidence ≥0.9 floors the composite to MEDIUM (≥30), mirroring
+   the existing OSV `malicious_floor` feed rule but triggered by the LLM's
+   own dimension scores. Checked against the whole corpus before shipping —
+   fires on zero benign-labelled reports.
+
+**Current result: 35.0/100, MEDIUM** — this is now the canonical
+`report-1.4.0-to-1.4.44-liberty-2-RECONSTRUCTED.json`, i.e. what
+`chainwatch diff` would produce today (modulo LLM non-determinism) if
+`1.4.44-liberty-2` were still fetchable. Full before/after breakdown,
+including why the dimension alone wasn't enough, in `FINDINGS.md`.

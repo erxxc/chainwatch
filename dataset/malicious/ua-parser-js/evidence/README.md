@@ -84,6 +84,11 @@ changed) reached **57.5, HIGH** on the identical attack —
 **Fixed 2026-08-10, same day:** `SOURCE_EXTENSIONS` now includes
 `.sh`/`.bat`/`.ps1`/`.cmd` for real (`src/chainwatch/diff/engine.py`), and
 the reconstruction was rerun against the actual fixed code — no
-monkey-patching. **Current result: 60.0/100, HIGH** —
+monkey-patching. Result at that point: 60.0/100, HIGH. A sixth risk
+dimension (`resource_exhaustion`) and a `definitive_dimension_floor`
+aggregator rule landed later the same day (built for `colors`, not this
+incident) — rerun again for corpus consistency, and `resource_exhaustion`
+scores 10.0 here too (the model reads the XMRig cryptominer as resource
+abuse in its own right). **Current result: 67.0/100, HIGH** —
 `../report-0.7.28-to-0.7.29-RECONSTRUCTED.json`, now the canonical entry
 for this pair. Full before/after breakdown in `../FINDINGS.md`.

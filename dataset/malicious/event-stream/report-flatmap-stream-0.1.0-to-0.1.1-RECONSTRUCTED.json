@@ -6,47 +6,55 @@
   "to_version": "0.1.1",
   "risk_score": 60.0,
   "severity": "HIGH",
-  "llm_base_score": 51.5,
+  "llm_base_score": 38.5,
   "dimensions": [
     {
       "name": "network_calls",
       "label": "New or changed network calls",
-      "score": 3.0,
-      "weight": 0.25,
-      "reasoning": "No direct network calls are visible in the diff. However, the decrypted payload loaded via f[e(n[7])](a,'') and f.exports(n[1]) executes unknown compiled code that could contain network calls. The encrypted blobs in test/data.js are too large to rule out exfiltration logic inside them.",
+      "score": 2.0,
+      "weight": 0.2,
+      "reasoning": "No direct network calls are visible in the diff. However, the decrypted payload (loaded via the obfuscated code in index.min.js) is the well-known event-stream/copay attack which exfiltrates Bitcoin wallet data. The exfiltration code is in the encrypted payload, not directly visible in this diff.",
       "confidence": 0.5
     },
     {
       "name": "obfuscation",
       "label": "Obfuscation / encoding patterns (base64, eval, dynamic require)",
       "score": 10.0,
-      "weight": 0.25,
-      "reasoning": "index.min.js appends a self-executing IIFE that: (1) hex-decodes all string literals via Buffer.from(r,'hex').toString() to hide method names ('crypto', 'env', 'npm_package_description', 'aes256', 'createDecipher', '_compile', 'hex', 'utf8'); (2) loads test/data.js which contains two enormous hex-encoded encrypted blobs (n[0] and n[1]); (3) decrypts n[0] using AES-256 with a key derived from process.env.npm_package_description; (4) dynamically compiles and executes the decrypted result via module.constructor._compile. This is textbook multi-layer obfuscation and dynamic code execution to hide a malicious payload.",
+      "weight": 0.2,
+      "reasoning": "index.min.js has a new IIFE appended that uses hex-encoded strings to hide all meaningful identifiers. Buffer.from(r,'hex').toString() is used to decode strings like '2e2f746573742f64617461' (./test/data.js), '63727970746f' (crypto), '6372656174654465636970686572' (createDecipher), '5f636f6d70696c65' (_compile). The data.js file contains two massive hex-encoded blobs (encrypted ciphertext). The code decrypts one blob using crypto.createDecipher('aes256', npm_package_description), compiles and executes the result via module.constructor._compile — a classic multi-layer obfuscation and dynamic code execution pattern.",
       "confidence": 1.0
     },
     {
       "name": "install_hooks",
       "label": "Postinstall / preinstall script additions or changes",
-      "score": 2.0,
-      "weight": 0.2,
-      "reasoning": "No explicit postinstall/preinstall script changes are visible in the diff. The malicious code executes at require/import time via the IIFE appended to index.min.js, so it triggers when the module is loaded rather than at install time. No package.json changes are shown.",
-      "confidence": 0.4
+      "score": 0.0,
+      "weight": 0.15,
+      "reasoning": "No package.json changes are shown and no preinstall/postinstall scripts are added in this diff. The malicious code executes at require-time rather than via install hooks.",
+      "confidence": 0.9
     },
     {
       "name": "env_conditional",
       "label": "Conditional logic gated on env vars, platform, or CI detection",
       "score": 9.0,
       "weight": 0.15,
-      "reasoning": "The IIFE in index.min.js reads t[e(n[3])][e(n[4])] which decodes to process.env['npm_package_description']. This value is used as the AES-256 decryption key for the payload. The code returns early if this env var is absent (if(!o)return), meaning the malicious payload only activates in environments where a specific npm_package_description is set — a classic targeted supply-chain attack (this is the known event-stream/copay attack targeting Copay wallet's npm_package_description).",
+      "reasoning": "The appended IIFE in index.min.js decodes 'npm_package_description' (hex '6e706d5f7061636b6167655f6465736372697074696f6e') and reads process.env[npm_package_description], using it as the AES-256 decryption key. This is explicitly conditioned on the presence of a specific environment variable — the payload only runs when the consuming package (Copay wallet) sets that env var, making it a targeted supply chain attack gated on the victim's environment.",
       "confidence": 1.0
     },
     {
       "name": "dependency_changes",
       "label": "Dependency graph changes (new transitive deps)",
       "score": 1.0,
-      "weight": 0.15,
-      "reasoning": "No new external dependencies are added. The IIFE uses only built-in Node.js modules (require('crypto'), require('./test/data')) and module.constructor, so no new transitive dependencies are introduced.",
+      "weight": 0.1,
+      "reasoning": "No new external npm dependencies are added. The code uses only built-in Node.js modules (stream, crypto) and a local file (./test/data.js). However, the use of module.constructor._compile to execute decrypted code at runtime means arbitrary hidden dependencies could be loaded dynamically.",
       "confidence": 0.7
+    },
+    {
+      "name": "resource_exhaustion",
+      "label": "Denial-of-service / resource-exhaustion patterns (unbounded loops, recursion, unthrottled blocking calls)",
+      "score": 0.0,
+      "weight": 0.2,
+      "reasoning": "No unbounded loops, recursive patterns, or resource exhaustion indicators are present in the diff.",
+      "confidence": 0.9
     }
   ],
   "feed_results": [
@@ -89,7 +97,7 @@
     {
       "source": "osv",
       "rule": "malicious_floor",
-      "delta": 3.5,
+      "delta": 16.5,
       "note": "osv reported malicious — raised score to floor 55"
     },
     {
@@ -133,8 +141,8 @@
     "diff_truncated": false
   },
   "llm_model": "claude-sonnet-4-6",
-  "llm_summary": "This diff is the infamous flatmap-stream/event-stream supply chain attack. A self-executing IIFE was appended to index.min.js that loads two large encrypted blobs from the newly added test/data.js, decrypts them using AES-256 with a key sourced from process.env.npm_package_description (targeting the Copay Bitcoin wallet application specifically), then dynamically compiles and executes the resulting code via module.constructor._compile. All string literals are hex-encoded to evade static analysis. This is a definitive, confirmed malicious supply chain attack with multi-layer obfuscation, environment-gated activation, and hidden dynamic code execution.",
-  "timestamp": "2026-08-10T14:01:21.788593Z",
+  "llm_summary": "This is the infamous event-stream/flatmap-stream supply chain attack (CVE-2018-16462). The 0.1.1 update appends a self-executing IIFE to index.min.js that uses hex-encoded strings to obfuscate all meaningful identifiers, loads encrypted payload data from test/data.js, decrypts it using the consuming package's npm_package_description environment variable as an AES-256 key, then dynamically compiles and executes the result via module.constructor._compile. The attack is highly targeted (only activates in the Copay Bitcoin wallet environment), uses multiple layers of obfuscation, and executes at require-time. This is a definitive, confirmed malicious package update with the highest possible risk score.",
+  "timestamp": "2026-08-11T01:30:21.058726Z",
   "from_version_sha256": null,
   "to_version_sha256": null
 }

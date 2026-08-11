@@ -68,7 +68,9 @@ the closest thing in this dataset to a directly analysable attack diff.
 | `10.1.0 → 11.0.0` | brackets the incident — pre-incident clean → post-incident, still-compromised `peacenotwar` dependency present | `report-10.1.0-to-11.0.0.json` |
 
 Findings — including a genuinely significant near-miss on the severity
-threshold — are in `FINDINGS.md`.
+threshold, resolved 2026-08-10 by an aggregator fix built for a different
+incident (see `FINDINGS.md` and `malicious/colors/FINDINGS.md`) — are in
+`FINDINGS.md`.
 
 ## Reconstructed pair — the full destructive wiper, run for real (2026-08-07)
 
@@ -93,12 +95,21 @@ from ever existing as something `npm install`-able.
 |---|---|---|
 | `10.1.0 → 10.1.1` (reconstructed) | **the actual wiper, not a remnant** | `report-10.1.0-to-10.1.1-RECONSTRUCTED.json` |
 
-**Result: 69.0/100, HIGH** — `network_calls` and `obfuscation` both scored
-10/10 (the corpus maximum on any dimension, by a wide margin), versus
-`11.0.0`'s 29.5/LOW. See `FINDINGS.md` for the full breakdown; this is the
-corpus's clearest evidence that the earlier near-miss was specifically an
-artifact of only having the diluted, wiper-removed `11.0.0` release
-available at the registry level — not a fundamental detection gap.
+**Original result: 69.0/100, HIGH** — `network_calls` and `obfuscation` both
+scored 10/10 (the corpus maximum on any dimension, by a wide margin), versus
+`11.0.0`'s original 29.5/LOW. See `FINDINGS.md` for the full breakdown; this
+is the corpus's clearest evidence that the earlier near-miss was
+specifically an artifact of only having the diluted, wiper-removed
+`11.0.0` release available at the registry level — not a fundamental
+detection gap.
+
+**Rerun 2026-08-10** against the fully fixed code (six dimensions, new
+weights, the `definitive_dimension_floor` rule — see
+`malicious/colors/FINDINGS.md`): **62.5/100, HIGH** — same verdict, lower
+number (the weight cuts to `network_calls`/`obfuscation` outweigh a modest
+new `resource_exhaustion=4.0`). `11.0.0` moved from 29.5/LOW to
+30.0/MEDIUM in the same rerun — see "Update 2026-08-10" in `FINDINGS.md`
+for both.
 
 The `report-*-RECONSTRUCTED.json` filename is deliberately distinct from the
 registry-fetched reports elsewhere in this corpus: `from_version_sha256`/
@@ -106,3 +117,18 @@ registry-fetched reports elsewhere in this corpus: `from_version_sha256`/
 diff/analysis ran against local directories, not downloaded archives. Treat
 it as a validated reconstruction, not a registry-reproducible artifact —
 reproduce it via the diff file above, not via `chainwatch diff`.
+
+## `11.0.0` rerun, 2026-08-10 — a real registry-fetched pair, no reconstruction
+
+Unlike the pair above, `10.1.0 → 11.0.0` needed no evidence-splicing to
+rerun: both versions are still live, so this was a plain
+`chainwatch diff npm node-ipc 10.1.0 11.0.0` against the actual registry,
+after the `resource_exhaustion` dimension and `definitive_dimension_floor`
+aggregator rule (both described in `malicious/colors/FINDINGS.md`) landed.
+`dependency_changes` scored 9.0 at confidence 1.00 again (consistent with
+the original run) and the new floor rule fired for real: **30.0, MEDIUM**,
+up from 29.5/LOW. Pre-fix report preserved at
+`pre-dos-fix-report-10.1.0-to-11.0.0.json`; the current
+`report-10.1.0-to-11.0.0.json` is this rerun. `from_version_sha256`/
+`to_version_sha256` are real hashes here (unlike the reconstructed pair
+above) — this is a genuine, reproducible registry fetch.

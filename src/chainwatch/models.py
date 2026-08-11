@@ -107,21 +107,33 @@ class RiskDimension(BaseModel):
 
 # Default dimension definitions — these match the prompt schema in analyzer/llm.py.
 # Defined here so models.py remains the single source of truth for the schema.
+#
+# resource_exhaustion added 2026-08-10 (dataset/findings/README.md
+# recommendation #1): the corpus's colors reconstruction showed a complete,
+# real denial-of-service attack (an unconditional infinite loop) scoring
+# LOW because none of the original five dimensions — all shaped around
+# data-exfiltration/credential-theft — have any concept of "this never
+# returns". Weights were rebalanced to make room: network_calls/obfuscation
+# 25%->20% each, install_hooks 20%->15%, dependency_changes 15%->10%
+# (already flagged separately as possibly over-weighted, see recommendation
+# #3), env_conditional unchanged at 15%. resource_exhaustion enters at 20%,
+# tied with network_calls/obfuscation as the top weight — a DoS payload is
+# not inherently less severe than an exfiltration one.
 DIMENSIONS: list[dict[str, Any]] = [
     {
         "name": "network_calls",
         "label": "New or changed network calls",
-        "weight": 0.25,
+        "weight": 0.20,
     },
     {
         "name": "obfuscation",
         "label": "Obfuscation / encoding patterns (base64, eval, dynamic require)",
-        "weight": 0.25,
+        "weight": 0.20,
     },
     {
         "name": "install_hooks",
         "label": "Postinstall / preinstall script additions or changes",
-        "weight": 0.20,
+        "weight": 0.15,
     },
     {
         "name": "env_conditional",
@@ -131,7 +143,15 @@ DIMENSIONS: list[dict[str, Any]] = [
     {
         "name": "dependency_changes",
         "label": "Dependency graph changes (new transitive deps)",
-        "weight": 0.15,
+        "weight": 0.10,
+    },
+    {
+        "name": "resource_exhaustion",
+        "label": (
+            "Denial-of-service / resource-exhaustion patterns "
+            "(unbounded loops, recursion, unthrottled blocking calls)"
+        ),
+        "weight": 0.20,
     },
 ]
 
@@ -236,7 +256,9 @@ class DiffSummary(BaseModel):
 
 class ScoreModifier(BaseModel):
     """
-    A single feed-driven adjustment applied to the LLM base score.
+    A single adjustment applied to the LLM base score — feed-driven (OSV,
+    Rekor, Scorecard) or LLM-dimension-driven (``definitive_dimension_floor``,
+    see ``analyzer/aggregator.py``).
 
     Recording every modifier makes the composite score decomposable after the
     fact:  ``llm_base_score + sum(m.delta for m in score_modifiers)`` equals the
@@ -245,7 +267,7 @@ class ScoreModifier(BaseModel):
     moved from the LLM score to the final ``risk_score``.
     """
 
-    source: str = Field(description="Feed or component that triggered it, e.g. 'osv'")
+    source: str = Field(description="Feed or component that triggered it, e.g. 'osv', 'llm'")
     rule: str = Field(
         description="Modifier rule id, e.g. 'malicious_floor', 'scorecard_good'",
     )

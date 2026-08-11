@@ -46,3 +46,28 @@ incidents in this dataset.
   `1.4.1`, `1.4.2`, or `1.4.44-liberty-2`. Given the git-level source for the
   actual payload is fully recovered and these are almost certainly minor
   version-string variants of the same content, this wasn't pursued further.
+
+## Reconstruction run (2026-08-08, rerun 2026-08-10)
+
+Same "diff two local directories, bypass the registry fetch entirely"
+mechanic used elsewhere in this corpus: `colors@1.4.0` is still published,
+so the base is a real tarball, fetched via chainwatch's own npm fetcher.
+
+| local directory | contents | source |
+|---|---|---|
+| `1.4.0/` (from) | Real, unmodified `colors@1.4.0` tarball, extracted via chainwatch's own fetcher | npm registry (still live) |
+| `1.4.44-liberty-2/` (to) | Same real `1.4.0` tree, plus `lib/index.js` replaced with `index.js` above (byte-identical) and `lib/custom/american.js` added (byte-identical to `american.js` above) | `1.4.0` base + this directory's evidence files |
+
+First result (2026-08-08): **7.5/100, LOW** — preserved at
+`../pre-dos-fix-report-1.4.0-to-1.4.44-liberty-2-RECONSTRUCTED.json`. None
+of the original five risk dimensions had any concept of denial-of-service;
+the free-text summary correctly named the incident but nothing routed that
+recognition into a score.
+
+**Fixed 2026-08-10:** a sixth dimension (`resource_exhaustion`) plus a
+same-day aggregator floor rule for near-certain, near-maximal single-
+dimension findings — see `../FINDINGS.md` for why the dimension alone
+(reaching 25.0) wasn't sufficient and the floor rule was needed too.
+Reran against the actual fixed code, no monkey-patching. **Current result:
+35.0/100, MEDIUM** — `../report-1.4.0-to-1.4.44-liberty-2-RECONSTRUCTED.json`,
+now the canonical entry for this pair.

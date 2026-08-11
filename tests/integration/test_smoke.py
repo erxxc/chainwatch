@@ -80,15 +80,15 @@ class TestSmoke:
         assert data["severity"] in ("LOW", "MEDIUM", "HIGH", "CRITICAL")
 
     def test_diff_dimensions_present(self):
-        """Report must contain all five risk dimensions."""
+        """Report must contain all six risk dimensions."""
         runner = CliRunner()
         result = runner.invoke(cli, ["--json", "diff", "npm", "lodash", "4.17.20", "4.17.21"])
         data = json.loads(result.output.strip())
-        assert len(data["dimensions"]) == 5
+        assert len(data["dimensions"]) == 6
         dim_names = {d["name"] for d in data["dimensions"]}
         assert dim_names == {
             "network_calls", "obfuscation", "install_hooks",
-            "env_conditional", "dependency_changes",
+            "env_conditional", "dependency_changes", "resource_exhaustion",
         }
 
     def test_diff_feed_results_present(self):

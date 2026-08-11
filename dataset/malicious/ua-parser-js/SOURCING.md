@@ -183,8 +183,14 @@ entry).
 
 **The gap was fixed the same day** — `SOURCE_EXTENSIONS` now includes
 `.sh`/`.bat`/`.ps1`/`.cmd` — and the reconstruction was rerun against the
-real, unmodified fixed code. **Current result: 60.0/100, HIGH.** This is
-now the canonical `report-0.7.28-to-0.7.29-RECONSTRUCTED.json`, i.e. what
-`chainwatch diff` would produce today (modulo LLM non-determinism) if
-`0.7.29` were still fetchable. Full before/after breakdown in
+real, unmodified fixed code: **60.0/100, HIGH.** Later the same day, a
+sixth risk dimension (`resource_exhaustion`) and a
+`definitive_dimension_floor` aggregator rule landed too (built for the
+`colors` incident, `malicious/colors/SOURCING.md`) — rerun again for
+corpus consistency: `resource_exhaustion` scores 10.0 here as well (the
+model reads the XMRig cryptominer as its own kind of resource abuse).
+**Current result: 67.0/100, HIGH.** This is now the canonical
+`report-0.7.28-to-0.7.29-RECONSTRUCTED.json`, i.e. what `chainwatch diff`
+would produce today (modulo LLM non-determinism) if `0.7.29` were still
+fetchable. Full before/after breakdown in
 `FINDINGS.md`.

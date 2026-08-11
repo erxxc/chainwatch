@@ -21,10 +21,19 @@ the LLM. `claude-sonnet-4-6` again.
 — `SOURCE_EXTENSIONS` now includes `.sh`/`.bat`/`.ps1`/`.cmd`
 (`src/chainwatch/diff/engine.py`) — and the reconstruction was rerun
 against the real, unmodified fixed code (no monkey-patching this time).
-**New result: HIGH (60.0)**, up from the pre-fix MEDIUM (42.5). See "The
-reconstructed pair" below for the full before/after story; the pre-fix
+**Result: HIGH (60.0)**, up from the pre-fix MEDIUM (42.5). The pre-fix
 report is preserved at
 `pre-fix-report-0.7.28-to-0.7.29-RECONSTRUCTED.json` for citation.
+
+**Update 2026-08-10 (a third time, same day):** rerun again after a sixth
+risk dimension (`resource_exhaustion`) and a `definitive_dimension_floor`
+aggregator rule landed (`malicious/colors/FINDINGS.md`). Unlike
+event-stream/node-ipc's reruns (weight cuts outweighing a small or zero new
+dimension score), this attack's XMRig cryptominer payload reasonably reads
+as resource-abuse too — the LLM scores `resource_exhaustion=10.0` here, not
+0. **Current result: HIGH (67.0)**, the highest number this pair has ever
+reached. See "The reconstructed pair" below for the full three-act
+before/after story.
 
 Redaction note: the two 2026-05-23 report JSON timestamps are normalized to
 `2026-05-23T00:00:00Z`. The reconstructed pair's report keeps its real
@@ -36,7 +45,7 @@ timestamp, matching the `node-ipc`/`colors`/`flatmap-stream` convention.
 |---|---|---|---|---|---|---|---|
 | 0.7.28 → 0.7.30 | brackets 0.7.29 | LOW | 3.8 | 0.0 | suspicious (ReDoS) | no_data | 7.4/10 clean |
 | 0.7.30 → 0.7.31 | post-incident control | LOW | 15.2 | 10.2 | suspicious (ReDoS) | no_data | 7.4/10 clean |
-| 0.7.28 → 0.7.29 *(reconstructed, post-fix)* | **the actual attack, as chainwatch sees it today** | **HIGH** | 65.0 | 60.0 | suspicious (`GHSA-pjwm-rvh2-c87w`) | no_data | 7.6/10 clean |
+| 0.7.28 → 0.7.29 *(reconstructed, post-DoS-fix)* | **the actual attack, as chainwatch sees it today** | **HIGH** | 72.0 | 67.0 | suspicious (`GHSA-pjwm-rvh2-c87w`) | no_data | 7.6/10 clean |
 
 Tarball SHA256 (verified at fetch time — the two registry pairs; the
 reconstructed pair's `from` side is the same real, still-published `0.7.28`
@@ -178,6 +187,34 @@ a diagnosable, single-line reason now scores correctly, verified against
 the actual attack rather than just argued for. See
 `dataset/findings/README.md` recommendation #2 (now implemented) for the
 corpus-wide framing.
+
+### A third run, after the resource_exhaustion fix
+
+Later the same day, `resource_exhaustion` (a sixth dimension) and
+`definitive_dimension_floor` (an aggregator rule) landed, both built for
+the `colors` incident (`malicious/colors/FINDINGS.md`) — not this one. This
+pair was rerun anyway, for corpus consistency, against the real fixed code:
+
+| dimension | score | confidence |
+|---|---|---|
+| network_calls | **10.0** | 1.0 |
+| obfuscation | 2.0 | 0.9 |
+| install_hooks | **10.0** | 1.0 |
+| env_conditional | 8.0 | 1.0 |
+| dependency_changes | 1.0 | 0.8 |
+| resource_exhaustion | **10.0** | 1.0 |
+
+`resource_exhaustion` scores a full 10.0 here too — not because this attack
+is DoS-shaped in the colors sense, but because the model reasonably reads
+the XMRig cryptominer as its own kind of resource abuse (an unthrottled
+background process consuming CPU indefinitely, `--cpu-max-threads-hint=50`
+notwithstanding). `llm_base_score` = 72.0 — *higher* than the
+SOURCE_EXTENSIONS-only rerun's 65.0, despite `network_calls`/`obfuscation`
+losing weight (25%→20% each) to make room for the new dimension — the new
+dimension's contribution outweighs that loss for this specific attack.
+Feed-adjusted (Scorecard `-5.0`, unchanged): **67.0, HIGH.** This is now
+the highest score this pair has ever reached, across all three runs
+(42.5 → 60.0 → 67.0), and the canonical `report-0.7.28-to-0.7.29-RECONSTRUCTED.json`.
 
 ## Per-pair detail
 
@@ -382,7 +419,7 @@ results.
 
 | package | malicious version available? | did diff-level analysis catch it? |
 |---|---|---|
-| ua-parser-js | Yes — reconstructed from a real, still-published `0.7.28` base plus the recovered `preinstall.js`/`.sh`/`.bat` scripts, wired up exactly as documented | **Yes** — HIGH (60.0/100), as of the `SOURCE_EXTENSIONS` fix. Pre-fix this was only a partial catch (MEDIUM, 42.5/100): correctly flagged (severity ≠ LOW) but held back from HIGH by the diff engine's own `.sh`/`.bat` extension-filter gap, not by the LLM's judgement or feed timing. See "The reconstructed pair" above for the full before/after. |
+| ua-parser-js | Yes — reconstructed from a real, still-published `0.7.28` base plus the recovered `preinstall.js`/`.sh`/`.bat` scripts, wired up exactly as documented | **Yes** — HIGH (67.0/100), as of the `SOURCE_EXTENSIONS` fix and the `resource_exhaustion`/`definitive_dimension_floor` fixes. Originally a partial catch (MEDIUM, 42.5/100): correctly flagged (severity ≠ LOW) but held back from HIGH by the diff engine's own `.sh`/`.bat` extension-filter gap, not by the LLM's judgement or feed timing. Three runs, three numbers: 42.5 → 60.0 → 67.0. See "The reconstructed pair" above for the full before/after. |
 
 The two registry-fetched pairs above remain negative results only: they
 validate that chainwatch does not false-positive on the legitimate

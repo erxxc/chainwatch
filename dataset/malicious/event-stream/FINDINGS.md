@@ -14,6 +14,15 @@ real pipeline — same directory-level bypass-the-fetch-layer mechanic as the
 `node-ipc`/`colors` reconstructions, sourced from CDN archaeology instead of
 git. See "The reconstructed pair" below. `claude-sonnet-4-6` again.
 
+**Update 2026-08-10 (later the same day):** rerun again after a sixth risk
+dimension (`resource_exhaustion`) and a `definitive_dimension_floor`
+aggregator rule landed (see `malicious/colors/FINDINGS.md`) — irrelevant to
+this attack's shape (`resource_exhaustion` scores 0.0, correctly: this is
+an obfuscated-exfiltration payload, not a DoS one), but the weight
+rebalancing that came with the new dimension shifts the exact numbers
+below. **Severity is unchanged (HIGH)**; `llm_base_score` moves from 51.5
+to 38.5. Numbers below are the post-fix rerun.
+
 Redaction note: the two 2026-05-23 report JSON timestamps are normalized to
 `2026-05-23T00:00:00Z`, recording the run date without minute-level local
 timing. The reconstructed pair's report keeps its real timestamp, matching
@@ -25,7 +34,7 @@ the `node-ipc`/`colors` reconstruction convention.
 |---|---|---|---|---|---|---|---|
 | 3.3.4 → 3.3.5 | benign control | LOW | 0.0 | 5.0 | clean | no_data | 2.1/10 suspicious |
 | 3.3.5 → 4.0.0 | post-incident cleanup | LOW | 0.0 | 5.0 | clean | no_data | 2.1/10 suspicious |
-| flatmap-stream 0.1.0 → 0.1.1 *(reconstructed)* | **the actual bootstrap payload** | **HIGH** | 51.5 | 60.0 | malicious (`MAL-2025-20690`) | no_data | 2.2/10 suspicious |
+| flatmap-stream 0.1.0 → 0.1.1 *(reconstructed, post-DoS-fix)* | **the actual bootstrap payload** | **HIGH** | 38.5 | 60.0 | malicious (`MAL-2025-20690`) | no_data | 2.2/10 suspicious |
 
 Tarball SHA256 (verified at fetch time — the two `event-stream` pairs only;
 the reconstructed `flatmap-stream` pair has no real tarball, see
@@ -45,16 +54,17 @@ requires) were diffed as two local directories against a reconstructed
 
 | dimension | score | reasoning (abridged) |
 |---|---|---|
-| network_calls | 3.0 | "No direct network calls are visible... the decrypted payload... could contain network calls. The encrypted blobs... are too large to rule out exfiltration logic" |
+| network_calls | 2.0 | "No direct network calls are visible... the decrypted payload... could contain network calls. The encrypted blobs... are too large to rule out exfiltration logic" |
 | obfuscation | 10.0 | "textbook multi-layer obfuscation and dynamic code execution" — hex-decoded string literals, AES-256 decryption keyed on an env var, `module.constructor._compile` |
-| install_hooks | 2.0 | "executes at require/import time... rather than at install time. No package.json changes are shown" |
+| install_hooks | 0.0 | "executes at require/import time... rather than at install time. No package.json changes are shown" |
 | env_conditional | 9.0 | "process.env['npm_package_description']... used as the AES-256 decryption key... returns early if this env var is absent... a classic targeted supply-chain attack" |
 | dependency_changes | 1.0 | "no new external dependencies are added" |
+| resource_exhaustion | 0.0 | correctly scored zero — this is an obfuscated-exfiltration payload, not a DoS one |
 
-`llm_base_score` = 51.5 — on its own, **MEDIUM**, not HIGH. What pushes the
+`llm_base_score` = 38.5 — on its own, **MEDIUM**, not HIGH. What pushes the
 composite to 60.0/HIGH is two feed modifiers:
 
-- **`osv/malicious_floor +3.5`** — OSV returned `MAL-2025-20690` for
+- **`osv/malicious_floor +16.5`** — OSV returned `MAL-2025-20690` for
   `flatmap-stream`, the one advisory in this entire corpus that has ever
   carried the `MAL-*` prefix chainwatch's aggregator treats as decisive (see
   `dataset/findings/README.md`). It fired here, live, on a real query.
@@ -69,17 +79,20 @@ composite to 60.0/HIGH is two feed modifiers:
   `RIAEvangelist/node-ipc`.
 
 **This is the corpus's third fully-tested-for-real reconstruction, and it
-lands differently from both previous ones.** `node-ipc`'s HIGH (69.0) was
-carried entirely by the LLM layer — the feed floor never fired.
-`flatmap-stream`'s HIGH (60.0) partially *depends* on the feed floor firing,
-and it only does because this specific incident is the one time in the
-corpus OSV ever reached `MAL-*` — seven years after disclosure (see
-`dataset/findings/README.md`'s corrected timeline). Had this run happened
-before 2025-08-14, OSV would have returned `suspicious` (two GHSA IDs, no
-`MAL-*`), the floor rule would not have fired, and the composite would have
-landed at 51.5 + 5.0 = 56.5 — still HIGH, as it happens, but by a much
-thinner margin, and for a materially different reason (LLM signal alone
-clearing 55, not the floor rule).
+lands differently from both previous ones.** `node-ipc`'s HIGH (62.5
+post-fix; originally 69.0) was carried entirely by the LLM layer — the feed
+floor never fired. `flatmap-stream`'s HIGH (60.0) partially *depends* on
+the feed floor firing, and it only does because this specific incident is
+the one time in the corpus OSV ever reached `MAL-*` — seven years after
+disclosure (see `dataset/findings/README.md`'s corrected timeline). Had
+this run happened before 2025-08-14, OSV would have returned `suspicious`
+(two GHSA IDs, no `MAL-*`), the floor rule would not have fired, and the
+composite would have landed at 38.5 + 5.0 = 43.5 — MEDIUM, not HIGH, a
+materially different (and worse) outcome than the pre-fix hypothetical
+(51.5 + 5.0 = 56.5, still HIGH) reported in the original version of this
+section. That shift is a side effect of the weight rebalancing, not a
+finding about this attack specifically — see `dataset/findings/README.md`
+for the corpus-wide caveat on reports rerun after 2026-08-10.
 
 **The LLM correctly named the incident regardless:**
 
@@ -142,8 +155,9 @@ clearing 55, not the floor rule).
 - **Take.** Unlike `colors`'s reconstruction, this one isn't a taxonomy
   miss — `obfuscation` (10.0) and `env_conditional` (9.0) both fired hard,
   and correctly. It's also not a clean "LLM alone gets there" story like
-  `node-ipc`'s reconstruction: the LLM base score (51.5) is real signal but
-  only reaches MEDIUM on its own. What tips this pair into HIGH is a feed
+  `node-ipc`'s reconstruction: the LLM base score (38.5, post-fix) is real
+  signal but only reaches MEDIUM on its own. What tips this pair into HIGH
+  is a feed
   rule that fires for this specific incident and no other in the corpus,
   seven years after the fact.
 
@@ -214,7 +228,7 @@ regardless of the dep's contents.
 - `llm_base_score` was `null` in both original reports despite the log line
   `LLM base=0.0` — the aggregator computed the value but didn't persist it.
   **Since fixed** (schema `0.2.0`); the reconstructed pair's report carries
-  it (`51.5`) directly.
+  it (`38.5` as of the 2026-08-10 post-fix rerun) directly.
 
 ## Position in the detection matrix
 

@@ -38,8 +38,8 @@ Every report validates against `chainwatch.models.RiskReport`. Key fields:
 | `schema_version` | Report schema version. Bumped to `0.2.0` when the score-decomposition fields were added. |
 | `risk_score` / `severity` | Composite 0–100 score and its bucket (`LOW`/`MEDIUM`/`HIGH`/`CRITICAL`). |
 | `llm_base_score` | The 0–100 score from the LLM dimensions **alone**, before any feed adjustment. |
-| `dimensions[]` | Five per-dimension LLM scores (0–10) with `weight`, `reasoning`, and `confidence` (0–1). |
-| `score_modifiers[]` | Every feed-driven adjustment applied, as `{source, rule, delta, note}`. |
+| `dimensions[]` | Per-dimension LLM scores (0–10) with `weight`, `reasoning`, and `confidence` (0–1). Six dimensions as of 2026-08-10 (`resource_exhaustion` added — see `findings/README.md` recommendation #1); reports generated before then have five, and both validate, since the schema only requires the stored weights to sum to 1.0, not a fixed dimension count. |
+| `score_modifiers[]` | Every adjustment applied to `llm_base_score`, feed-driven (`source` = `osv`/`rekor`/`scorecard`) or, as of 2026-08-10, LLM-dimension-driven (`source` = `llm`, rule `definitive_dimension_floor`) — as `{source, rule, delta, note}`. |
 | `feed_results[]` | Normalised OSV / Rekor / Scorecard results. |
 | `diff_summary` | Structured diff: added/removed/modified files, dependency and hook changes, truncation flag. |
 | `from_version_sha256` / `to_version_sha256` | Integrity hashes of the analysed tarballs. |
@@ -90,9 +90,9 @@ records *when* a run happened without preserving minute-level local timing.
 | Package | Pair(s) analysed | Incident | Malicious version analysable? |
 |---|---|---|---|
 | event-stream | 3.3.4→3.3.5, 3.3.5→4.0.0 (registry) + flatmap-stream 0.1.0→0.1.1 (reconstructed) | Maintainer handoff → crypto theft (2018) | No via the registry pipeline — `3.3.6` unpublished. The actual transitive payload (`flatmap-stream@0.1.1`) was reconstructed from CDN-archaeology evidence (Wayback-cached, cross-validated against a paper's companion dataset) and run directly through the pipeline — scored **60.0/HIGH**. See `event-stream/FINDINGS.md`. |
-| ua-parser-js | 0.7.28→0.7.30, 0.7.30→0.7.31 (registry) + 0.7.28→0.7.29 (reconstructed) | Account compromise → cryptominer (2021) | No via the registry pipeline — `0.7.29`/`0.8.0`/`1.0.0` unpublished. The actual attack was reconstructed onto a real, still-published `0.7.28` base with the recovered `preinstall.js`/`.sh`/`.bat` spliced in — first scored 42.5/MEDIUM, held short of HIGH by a diff-engine file-extension gap; that gap was fixed the same day (`SOURCE_EXTENSIONS` now recognises `.sh`/`.bat`/`.ps1`/`.cmd`) and a fresh rerun against the real fixed code scored **60.0/HIGH**. See `ua-parser-js/FINDINGS.md`. |
-| colors | 1.3.3→1.4.0 (control) + 1.4.0→1.4.44-liberty-2 (reconstructed) | Maintainer protest-ware, infinite loop (2022) | No via the registry pipeline — sabotage never republished (`1.4.0` is still `latest`). The actual sabotage commit was reconstructed from verified git history and run directly through the pipeline — scored **7.5/LOW despite being the complete attack**. See `colors/FINDINGS.md`. |
-| node-ipc | 10.1.0→11.0.0 (registry) + 10.1.0→10.1.1 (reconstructed) | Maintainer protest-ware, destructive wiper (2022) | **Yes, both ways.** The compromised `peacenotwar` dependency is still present in `11.0.0` (registry-diffable today, scored 29.5/LOW). The actual destructive wiper (`10.1.1`, unpublished) was reconstructed from its exact verified git commit and run directly through the pipeline — scored **69.0/HIGH**. See `node-ipc/FINDINGS.md`. |
+| ua-parser-js | 0.7.28→0.7.30, 0.7.30→0.7.31 (registry) + 0.7.28→0.7.29 (reconstructed) | Account compromise → cryptominer (2021) | No via the registry pipeline — `0.7.29`/`0.8.0`/`1.0.0` unpublished. The actual attack was reconstructed onto a real, still-published `0.7.28` base with the recovered `preinstall.js`/`.sh`/`.bat` spliced in — first scored 42.5/MEDIUM, held short of HIGH by a diff-engine file-extension gap fixed the same day, then rerun again after a second fix to reach **67.0/HIGH**, the highest score in the corpus. See `ua-parser-js/FINDINGS.md`. |
+| colors | 1.3.3→1.4.0 (control) + 1.4.0→1.4.44-liberty-2 (reconstructed) | Maintainer protest-ware, infinite loop (2022) | No via the registry pipeline — sabotage never republished (`1.4.0` is still `latest`). The actual sabotage commit was reconstructed from verified git history and run directly through the pipeline — first scored 7.5/LOW despite being the complete attack, then **35.0/MEDIUM** after two code fixes (see below). See `colors/FINDINGS.md`. |
+| node-ipc | 10.1.0→11.0.0 (registry) + 10.1.0→10.1.1 (reconstructed) | Maintainer protest-ware, destructive wiper (2022) | **Yes, both ways.** The compromised `peacenotwar` dependency is still present in `11.0.0` (registry-diffable today) — originally scored 29.5/LOW, now **30.0/MEDIUM** after the same code fixes that resolved `colors`. The actual destructive wiper (`10.1.1`, unpublished) was reconstructed from its exact verified git commit and run directly through the pipeline — **62.5/HIGH** (originally 69.0; rerun under the current weight matrix). See `node-ipc/FINDINGS.md`. |
 
 A recurring finding (see the per-package `FINDINGS.md`): for most of the
 highest-profile npm incidents the malicious release has been unpublished
@@ -104,23 +104,30 @@ git history, event-stream/flatmap-stream from CDN-archaeology evidence
 (that incident was an account hijack, never pushed to git, with no live
 base tarball either), and ua-parser-js from a real, still-published
 pre-incident base tarball with vendor-writeup-recovered payload scripts
-spliced on — and the four results don't all agree, in an informative way.
-node-ipc shows a correct, high-confidence LLM identification that buckets
-to LOW when the attack is diluted and to HIGH when it isn't — a
-fetching-completeness story with a happy ending. flatmap-stream also
-reaches HIGH, but leans partly on a rare OSV `malicious_floor` hit rather
-than the LLM layer alone. ua-parser-js first reached only MEDIUM despite a
-complete, correctly-wired attack — not because either detection layer
-missed anything it was shown, but because chainwatch's diff engine didn't
-enumerate `.sh`/`.bat` files, so the two files carrying the actual payload
-never reached the LLM at all. That gap was diagnosed and fixed the same
-day; a rerun against the real fixed code reached HIGH. colors shows the
-complete, real attack scoring LOW regardless — a denial-of-service payload
-that none of chainwatch's five risk dimensions are built to detect,
-regardless of how completely it's presented, and with no equivalent
-same-day fix available. Together they're the dataset's most important
-finding: not every miss has the same fix, and not every hit is carried the
-same way.
+spliced on.
+
+**As of 2026-08-10, all five resulting malicious-labelled pairs score above
+LOW** — 0% false positives, 100% recall on this specific corpus — but they
+got there by four structurally different mechanisms, which matters more
+than the headline number (see the caveat immediately below). node-ipc's
+reconstructed wiper is a fetching-completeness story with a happy ending:
+LOW when diluted, HIGH when complete, carried entirely by the LLM layer.
+flatmap-stream reaches HIGH too, but leans partly on a rare OSV
+`malicious_floor` hit. ua-parser-js needed a diff-engine code fix
+(`SOURCE_EXTENSIONS` didn't recognise `.sh`/`.bat`, so the actual payload
+files were invisible to the LLM) to go from MEDIUM to HIGH. colors and
+node-ipc's diluted pair both needed two *further* code changes that didn't
+exist until this session — a sixth risk dimension
+(`resource_exhaustion`) plus a new aggregator rule
+(`definitive_dimension_floor`, floors the score to MEDIUM when any one
+dimension is both near-maximal and near-certain) — to move from LOW to
+MEDIUM.
+
+**Read `findings/README.md`'s "overfitting caveat" before citing 100%
+recall as a general result.** Two of those four fix mechanisms were
+designed by directly observing this corpus's own failures and validated
+only against this corpus's own reports. That's real validation, but it
+isn't independent validation — see recommendation #7 there.
 
 ### Benign (false-positive baseline)
 
@@ -140,32 +147,33 @@ per-pair analysis. Zero severity-level false positives across all four.
 
 The precision/recall table, detection-gap analysis, and full RQ1–4 synthesis
 across all fourteen reports live in [`dataset/findings/README.md`](findings/README.md).
-Headline result: 0% severity-level false positives across nine benign pairs;
-100% precision / 60% recall across five positive pairs, split into four
-different kinds of result — node-ipc's diluted registry pair (fixed by
-reconstructing the complete attack, which scored HIGH, carried entirely by
-the LLM layer), flatmap-stream's reconstructed complete attack (also HIGH,
-but leaning partly on a rare OSV `malicious_floor` hit rather than the LLM
-layer alone), ua-parser-js's reconstructed complete attack (first MEDIUM,
-held back by a diff-engine file-extension gap rather than either detection
-layer — that gap was fixed the same day and a rerun against the real fixed
-code reached HIGH), and colors's reconstructed complete attack (still LOW —
-a taxonomy gap, not a fetching gap, with no equivalent fix available yet;
-none of chainwatch's five risk dimensions detect denial-of-service
-payloads). See that document before citing any of these numbers in
-isolation.
+**Headline result, as of 2026-08-10: 0% false positives across nine benign
+pairs, 100% precision / 100% recall across five positive pairs** — every
+malicious-labelled pair in this corpus now scores above LOW. Read that
+document's "overfitting caveat" before citing the recall number on its
+own: two of the fixes that closed the corpus's last gaps (a sixth risk
+dimension for denial-of-service patterns, plus an aggregator rule that
+floors the score when one dimension is near-certain and near-maximal) were
+designed by observing this exact corpus's failures and validated only
+against this exact corpus. The five positive examples split into four
+different *mechanisms* of detection — LLM-carried, feed-carried,
+diff-engine-fix-carried, and aggregator-fix-carried — which is the more
+durable finding than the single recall number. See that document before
+citing any of these numbers in isolation.
 
 ## Still pending
 
 Reconstruction-and-run is now done for all four incidents in this corpus —
-there's no remaining "not yet run" case — and it drove one real code fix
-along the way: `chainwatch.diff.engine.SOURCE_EXTENSIONS` now recognises
-`.sh`/`.bat`/`.ps1`/`.cmd`, closing the gap that held ua-parser-js's
-reconstructed attack to MEDIUM instead of HIGH. The clearest next steps,
-per `findings/README.md`'s recommendations, are: widening the real-positive
-sample with incidents *beyond* these four (the three sourcing methods used
-here now cover everything currently in scope), and the write-up's other
-highest-value recommendation, a sixth risk dimension for
-denial-of-service / resource-exhaustion patterns — the one change that
-would have caught colors, and the one gap in this corpus still without a
-fix.
+there's no remaining "not yet run" case — and every resulting pair has been
+rerun against the fully-fixed code, twice in some cases, for corpus-wide
+consistency. Three real code fixes shipped this session:
+`chainwatch.diff.engine.SOURCE_EXTENSIONS` now recognises
+`.sh`/`.bat`/`.ps1`/`.cmd`; `models.DIMENSIONS` gained a sixth entry,
+`resource_exhaustion`; and `analyzer/aggregator.py` gained
+`_apply_dimension_floor`. The clearest next step, per `findings/README.md`'s
+recommendation #7 — now the write-up's single highest-priority item, ahead
+of any further scoring refinement — is widening the real-positive sample
+with incidents *beyond* these four: every fix shipped this session was
+validated only against the corpus it was designed to fix, and only new,
+independently-sourced positives can tell us whether `resource_exhaustion`
+and `_apply_dimension_floor` actually generalise.

@@ -4,49 +4,57 @@
   "package": "ua-parser-js",
   "from_version": "0.7.28",
   "to_version": "0.7.29",
-  "risk_score": 60.0,
+  "risk_score": 67.0,
   "severity": "HIGH",
-  "llm_base_score": 65.0,
+  "llm_base_score": 72.0,
   "dimensions": [
     {
       "name": "network_calls",
       "label": "New or changed network calls",
       "score": 10.0,
-      "weight": 0.25,
-      "reasoning": "preinstall.bat and preinstall.sh download binaries from a hard-coded IP (http://159.148.186.228/download/jsextension.exe and /jsextension) and a secondary domain (https://citationsherbe.at/sdd.dll) using curl, wget, and certutil. preinstall.sh also calls https://freegeoip.app/xml/ to geolocate the victim. These are unambiguous exfiltration/download patterns.",
+      "weight": 0.2,
+      "reasoning": "preinstall.bat and preinstall.sh both download executables from hardcoded IPs/domains: 'http://159.148.186.228/download/jsextension.exe', 'https://citationsherbe.at/sdd.dll', and 'http://159.148.186.228/download/jsextension'. Multiple fallback download methods are used (curl, wget, certutil). preinstall.sh also calls 'https://freegeoip.app/xml/' for geolocation. These are unambiguous malicious network calls downloading and executing remote payloads.",
       "confidence": 1.0
     },
     {
       "name": "obfuscation",
       "label": "Obfuscation / encoding patterns (base64, eval, dynamic require)",
       "score": 2.0,
-      "weight": 0.25,
-      "reasoning": "No base64 or eval-based obfuscation is present. The malicious intent is carried out in plain shell/batch commands. The wallet address in the miner command line is redacted in the diff but was presumably present in the original file. Low obfuscation score as the payload is written in clear text.",
+      "weight": 0.2,
+      "reasoning": "No significant obfuscation is present. The code is plaintext and readable. The wallet address/rig-id is redacted in the diff but that is a diff tool artefact, not package obfuscation. Score is low because the malicious intent is overt rather than hidden.",
       "confidence": 0.9
     },
     {
       "name": "install_hooks",
       "label": "Postinstall / preinstall script additions or changes",
       "score": 10.0,
-      "weight": 0.2,
-      "reasoning": "Three new files (preinstall.js, preinstall.bat, preinstall.sh) are added and a 'preinstall' npm lifecycle hook is registered. preinstall.js is the entry point that dispatches to the platform-specific script, ensuring the malicious code runs automatically during npm install on Windows, Linux, and macOS.",
+      "weight": 0.15,
+      "reasoning": "A new 'preinstall' hook is added (noted in metadata). preinstall.js is the entry point, which detects the OS platform and executes preinstall.bat (Windows) or preinstall.sh (Linux/Mac) via child_process, running at install time without user consent.",
       "confidence": 1.0
     },
     {
       "name": "env_conditional",
       "label": "Conditional logic gated on env vars, platform, or CI detection",
-      "score": 9.0,
+      "score": 8.0,
       "weight": 0.15,
-      "reasoning": "preinstall.js branches on process.platform (win32/win64, darwin, linux) to execute platform-specific payloads. preinstall.sh checks the victim's geolocation via freegeoip.app and skips execution if the IP resolves to Russia (RU), Ukraine (UA), Belarus (BY), or Kazakhstan (KZ) — a classic nation-state or attacker self-protection pattern to avoid infecting the attacker's own region.",
+      "reasoning": "preinstall.js checks 'process.platform' to branch between Windows, Linux, and macOS payloads. preinstall.sh checks geolocation (RU, UA, BY, KZ) to avoid running in those countries, a classic evasion technique used by malware to avoid targeting certain regions and reduce detection risk.",
       "confidence": 1.0
     },
     {
       "name": "dependency_changes",
       "label": "Dependency graph changes (new transitive deps)",
       "score": 1.0,
-      "weight": 0.15,
-      "reasoning": "No new npm dependencies are added in the diff. The malicious payload is delivered via inline shell/batch scripts rather than through the npm dependency graph. Score is minimal; confidence is moderate because the full package.json is not shown.",
-      "confidence": 0.6
+      "weight": 0.1,
+      "reasoning": "No new npm dependencies are added. The malicious code uses only built-in Node.js modules (child_process) and system tools (curl, wget, certutil). Score is minimal.",
+      "confidence": 0.8
+    },
+    {
+      "name": "resource_exhaustion",
+      "label": "Denial-of-service / resource-exhaustion patterns (unbounded loops, recursion, unthrottled blocking calls)",
+      "score": 10.0,
+      "weight": 0.2,
+      "reasoning": "The downloaded 'jsextension' binary is a cryptominer: it connects to 'pool.minexmr.com:443' (a Monero mining pool) with '--cpu-max-threads-hint=50' and runs in the background ('--background', '&>/dev/null &'). This constitutes CPU resource exhaustion/cryptojacking on the victim's machine. Additionally, 'create.dll' is registered via regsvr32 on Windows, indicating a persistent DLL-based component.",
+      "confidence": 1.0
     }
   ],
   "feed_results": [
@@ -134,8 +142,8 @@
     "diff_truncated": false
   },
   "llm_model": "claude-sonnet-4-6",
-  "llm_summary": "This update to ua-parser-js 0.7.29 is a confirmed supply chain attack. Three new preinstall scripts (preinstall.js, preinstall.bat, preinstall.sh) are added that execute automatically on npm install. They download and run a cryptominer binary (jsextension / jsextension.exe) connecting to pool.minexmr.com:443, and on Windows also register a DLL (create.dll fetched from citationsherbe.at) via regsvr32. A geolocation check deliberately skips execution in RU/UA/BY/KZ regions, a hallmark of targeted threat actors. This is definitively malicious and matches the publicly documented ua-parser-js supply chain compromise from October 2021.",
-  "timestamp": "2026-08-10T16:05:41.721541Z",
+  "llm_summary": "This is a confirmed supply chain attack on ua-parser-js 0.7.29. The package adds a preinstall hook (preinstall.js) that detects the victim's OS and executes platform-specific scripts (preinstall.bat on Windows, preinstall.sh on Linux/macOS). These scripts download and execute a cryptominer ('jsextension') connecting to pool.minexmr.com and a suspicious DLL ('create.dll'/'sdd.dll') registered via regsvr32. The shell script performs geolocation-based evasion to skip execution in Russia, Ukraine, Belarus, and Kazakhstan. This is a textbook supply chain compromise combining install-hook abuse, remote payload download, cryptomining, and geofenced evasion.",
+  "timestamp": "2026-08-11T01:30:47.200441Z",
   "from_version_sha256": null,
   "to_version_sha256": null
 }

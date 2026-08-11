@@ -31,6 +31,7 @@ def _make_dimensions(overrides: dict | None = None) -> list[RiskDimension]:
         "install_hooks": 0.0,
         "env_conditional": 0.0,
         "dependency_changes": 0.5,
+        "resource_exhaustion": 0.0,
     }
     if overrides:
         scores.update(overrides)
@@ -237,7 +238,7 @@ class TestAggregator:
         from chainwatch.analyzer.aggregator import _compute_llm_base_score
         all_dims = [
             "network_calls", "obfuscation", "install_hooks",
-            "env_conditional", "dependency_changes",
+            "env_conditional", "dependency_changes", "resource_exhaustion",
         ]
         dims = _make_dimensions({k: 0.0 for k in all_dims})
         assert _compute_llm_base_score(dims) == pytest.approx(0.0)
@@ -246,10 +247,53 @@ class TestAggregator:
         from chainwatch.analyzer.aggregator import _compute_llm_base_score
         all_dims = [
             "network_calls", "obfuscation", "install_hooks",
-            "env_conditional", "dependency_changes",
+            "env_conditional", "dependency_changes", "resource_exhaustion",
         ]
         dims = _make_dimensions({k: 10.0 for k in all_dims})
         assert _compute_llm_base_score(dims) == pytest.approx(100.0)
+
+    def test_definitive_dimension_applies_floor(self):
+        from chainwatch.analyzer.aggregator import _apply_dimension_floor
+        # colors-shaped case: one dimension maxed at high confidence, rest quiet
+        dims = _make_dimensions({"resource_exhaustion": 10.0})
+        for d in dims:
+            if d.name == "resource_exhaustion":
+                d.confidence = 1.0
+        result, modifiers = _apply_dimension_floor(20.0, dims)
+        assert result == pytest.approx(30.0)
+        assert [m.rule for m in modifiers] == ["definitive_dimension_floor"]
+        assert [m.source for m in modifiers] == ["llm"]
+        # delta reconstructs the path: base + delta == floor
+        assert 20.0 + modifiers[0].delta == pytest.approx(30.0)
+
+    def test_definitive_dimension_ignores_low_confidence(self):
+        from chainwatch.analyzer.aggregator import _apply_dimension_floor
+        # Maxed score but low confidence shouldn't trigger the floor
+        dims = _make_dimensions({"resource_exhaustion": 10.0})
+        for d in dims:
+            if d.name == "resource_exhaustion":
+                d.confidence = 0.3
+        result, modifiers = _apply_dimension_floor(2.0, dims)
+        assert result == pytest.approx(2.0)
+        assert modifiers == []
+
+    def test_definitive_dimension_doesnt_lower_score(self):
+        from chainwatch.analyzer.aggregator import _apply_dimension_floor
+        dims = _make_dimensions({"resource_exhaustion": 10.0})
+        for d in dims:
+            if d.name == "resource_exhaustion":
+                d.confidence = 1.0
+        # Base score already above the floor — untouched, no modifier recorded
+        result, modifiers = _apply_dimension_floor(60.0, dims)
+        assert result == pytest.approx(60.0)
+        assert modifiers == []
+
+    def test_definitive_dimension_no_trigger_without_high_score(self):
+        from chainwatch.analyzer.aggregator import _apply_dimension_floor
+        dims = _make_dimensions()  # defaults: all low/moderate scores
+        result, modifiers = _apply_dimension_floor(5.0, dims)
+        assert result == pytest.approx(5.0)
+        assert modifiers == []
 
     def test_feed_malicious_applies_floor(self):
         from chainwatch.analyzer.aggregator import _apply_feed_modifiers
@@ -289,7 +333,7 @@ class TestAggregator:
 
     def test_build_report_persists_base_score_and_modifiers(self):
         from chainwatch.analyzer.aggregator import build_report
-        dims = _make_dimensions()  # base = 1.0*.25 + .5*.25 + .5*.15 = 4.5
+        dims = _make_dimensions()  # base = 1.0*.20 + .5*.20 + .5*.10 = 3.5
         feeds = [
             FeedResult(source="osv", status=FeedStatus.malicious, details="MAL"),
             FeedResult(source="rekor", status=FeedStatus.no_data, details=""),
@@ -302,6 +346,39 @@ class TestAggregator:
             diff_summary=DiffSummary(), dimensions=dims, feed_results=feeds,
             llm_summary="s", llm_model="m",
         )
-        assert report.llm_base_score == pytest.approx(4.5)
+        assert report.llm_base_score == pytest.approx(3.5)
         assert report.risk_score == pytest.approx(55.0)  # malicious floor
         assert [m.rule for m in report.score_modifiers] == ["malicious_floor"]
+
+    def test_build_report_colors_shaped_single_vector_attack(self):
+        """End-to-end regression test for the colors incident.
+
+        A single-vector attack (resource_exhaustion=10.0 at full confidence,
+        every other dimension a genuine 0.0) must not stay LOW just because
+        the weighted-sum formula alone caps it at 20/100.
+        """
+        from chainwatch.analyzer.aggregator import build_report
+        dims = _make_dimensions({
+            "network_calls": 0.0, "obfuscation": 0.0, "install_hooks": 0.0,
+            "env_conditional": 0.0, "dependency_changes": 0.0,
+            "resource_exhaustion": 10.0,
+        })
+        for d in dims:
+            if d.name == "resource_exhaustion":
+                d.confidence = 1.0
+        feeds = [
+            FeedResult(source="osv", status=FeedStatus.clean, details=""),
+            FeedResult(source="rekor", status=FeedStatus.no_data, details=""),
+            FeedResult(source="scorecard", status=FeedStatus.no_data, details=""),
+        ]
+        report = build_report(
+            package="colors-shaped", ecosystem=Ecosystem.npm,
+            from_version="1.0.0", to_version="1.0.1",
+            from_sha256=None, to_sha256=None,
+            diff_summary=DiffSummary(), dimensions=dims, feed_results=feeds,
+            llm_summary="s", llm_model="m",
+        )
+        assert report.llm_base_score == pytest.approx(20.0)
+        assert report.risk_score == pytest.approx(30.0)
+        assert report.severity == Severity.MEDIUM
+        assert [m.rule for m in report.score_modifiers] == ["definitive_dimension_floor"]

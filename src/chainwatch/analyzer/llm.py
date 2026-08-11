@@ -80,6 +80,11 @@ No preamble, no markdown, no explanation outside the JSON structure.
 - install_hooks       : Postinstall/preinstall script additions or changes
 - env_conditional     : Conditional logic gated on env vars, platform, or CI detection
 - dependency_changes  : Dependency graph changes (new transitive dependencies)
+- resource_exhaustion : Denial-of-service / resource-exhaustion patterns — unbounded loops, \
+unbounded recursion, or blocking/spinning operations with no timeout, no exit condition, and \
+no rate limit. Score this on whether the code can terminate and yield control, not on whether \
+it exfiltrates anything. An infinite loop with no break condition that runs unconditionally on \
+import/require is a 10 even with zero network calls, zero obfuscation, and zero new dependencies.
 
 ## Scoring guide
 
@@ -334,6 +339,9 @@ def _build_stub_dimensions() -> list[RiskDimension]:
         "install_hooks": (0.0, "No install hook changes in the stub diff."),
         "env_conditional": (0.0, "No env-conditional logic detected."),
         "dependency_changes": (0.5, "No dependency changes in the stub diff."),
+        "resource_exhaustion": (
+            0.0, "No unbounded loops or blocking calls detected in the stub diff.",
+        ),
     }
     result = []
     for dim_def in DIMENSIONS:

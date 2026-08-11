@@ -121,16 +121,18 @@ or otherwise). Full method and directory layout in `evidence/README.md`.
 |---|---|---|
 | `0.1.0 → 0.1.1` *(reconstructed)* | **flatmap-stream's real bootstrap payload** | `report-flatmap-stream-0.1.0-to-0.1.1-RECONSTRUCTED.json` |
 
-**Result: 60.0/100, HIGH.** Unlike `colors`'s reconstruction, this is a hit,
-not a taxonomy miss — `obfuscation` and `env_conditional` both scored high
-(10.0, 9.0), and OSV's `malicious_floor` rule fired for real (the one
-incident in this whole corpus where it ever does — see
-`dataset/findings/README.md`). Unlike `node-ipc`'s reconstruction, the HIGH
-verdict here isn't carried by the LLM layer alone: the LLM base score alone
-(51.5) would only reach MEDIUM, and it's the OSV floor plus a Scorecard
-penalty that push it into HIGH. See `FINDINGS.md` for the full breakdown,
-including a caveat on what that Scorecard score is actually measuring for
-an unpublished package.
+**Result: 60.0/100, HIGH** (rerun 2026-08-10 after a sixth risk dimension
+and aggregator floor rule landed, described in
+`malicious/colors/FINDINGS.md`; severity unchanged, `llm_base_score` moved
+51.5→38.5 — see "Update 2026-08-10 (later the same day)" in `FINDINGS.md`).
+`obfuscation` and `env_conditional` both scored high (10.0, 9.0), and OSV's
+`malicious_floor` rule fired for real (the one incident in this whole
+corpus where it ever does — see `dataset/findings/README.md`). Unlike
+`node-ipc`'s reconstruction, the HIGH verdict here isn't carried by the LLM
+layer alone: the LLM base score alone (38.5, post-fix) would only reach
+MEDIUM, and it's the OSV floor plus a Scorecard penalty that push it into
+HIGH. See `FINDINGS.md` for the full breakdown, including a caveat on what
+that Scorecard score is actually measuring for an unpublished package.
 
 This also means the framing in "Research finding" above needs one
 amendment: a diff-level scanner given `flatmap-stream`'s payload directly
