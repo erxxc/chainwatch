@@ -1019,6 +1019,59 @@ there's a real "before" number to compare a re-measured "after" against.
     event-stream-shaped attack (stolen or reassigned publishing rights,
     same package, new signer) via signature rather than inference alone.
 
+12. **✅ Implemented (2026-08-12). A fourth feed client — new-dependency
+    provenance — directly answers option (b) from `event-stream`'s own
+    cross-cutting observation #1 ("treat any new-dep-from-a-new-maintainer
+    as a HIGH-signal event regardless of the dep's contents").** The
+    event-stream/flatmap-stream incident (2018) is this corpus's clearest
+    case of a structural gap no per-dimension LLM tuning could close: the
+    malicious payload never touched event-stream's own source, so
+    analysing event-stream's diff — however well — could never surface it.
+    The entire attack was a one-line `package.json` addition pointing at an
+    obscure, single-maintainer, thinly-versioned package. `analyzer/
+    feeds.py::_query_new_dependency_provenance` now queries every
+    dependency `diff_summary.new_dependencies` reports as newly added
+    (its own registry project metadata, the same endpoint
+    `_resolve_github_repo` already uses) and flags it low-scrutiny if it
+    has <= 5 ever-published versions and, on npm, <= 1 maintainer — PyPI's
+    public JSON API has no maintainer-list equivalent, so the PyPI check is
+    version-count only, a known, documented weaker signal on that side.
+    Deliberately **not** implemented as option (a) (recursively fetching
+    and diffing every new dependency's own source) — that's a materially
+    bigger architectural change with unbounded transitive depth, whereas
+    this corpus already has an existing, separate proof that option (a)'s
+    payoff is real (`flatmap-stream 0.1.0 → 0.1.1`'s own reconstructed pair
+    scores HIGH once its content *is* what's analysed, recommendation #7's
+    predecessor work) — this heuristic is the cheap complement, not a
+    replacement, and is designed to be a weak amplifier (+5 to the score,
+    same tier as the Scorecard bonus) rather than a verdict, since most
+    single-maintainer/few-version packages are ordinary small utilities,
+    not attacks. Wired into `_apply_feed_modifiers` as
+    `new_dependency_low_scrutiny`; `run_all_feeds()` gained an optional
+    `new_dependencies` parameter and `run_diff_pipeline` now passes
+    `diff_summary.new_dependencies` through automatically. **Checked, not
+    assumed, both that it fires on the incident that motivated it and that
+    it discriminates real signal from noise**: live-queried against the
+    real npm registry on 2026-08-12 (a direct function call, not a saved
+    report), `flatmap-stream` resolves to 1 maintainer / 1 version (npm's
+    post-quarantine security placeholder — see the caveat in the client's
+    own docstring for why this reflects today's frozen state rather than
+    September 2018's) and correctly trips `suspicious`; `lodash`, checked
+    in the same call as a real-world negative control, currently also shows
+    a single maintainer but has 117 ever-published versions and does
+    *not* trip the rule — confirming the version-count-AND-maintainer-count
+    condition is doing real discriminating work, not just flagging every
+    single-maintainer package on the registry. This does not retroactively
+    change any committed report in this corpus: none of `event-stream`'s
+    three saved pairs carry `flatmap-stream` in `new_dependencies` (the one
+    diff that would have — `3.3.5 → 3.3.6` — was never recoverable, see
+    `malicious/event-stream/SOURCING.md` and FINDINGS.md's position table),
+    so like recommendation #11 this is a forward-looking fix: it changes
+    what a *future* scan of a currently-being-added dependency sees, not
+    any report already archived here. See `malicious/event-stream/
+    FINDINGS.md`'s cross-cutting observation #1 for the incident-specific
+    note.
+
 ## Reproducing this analysis
 
 The corpus table and dimension breakdown:

@@ -331,6 +331,28 @@ class TestAggregator:
         assert result == pytest.approx(40.0)
         assert [m.rule for m in modifiers] == ["rekor_identity_changed"]
 
+    def test_new_deps_low_scrutiny_adds_bonus(self):
+        from chainwatch.analyzer.aggregator import _apply_feed_modifiers
+        feeds = [
+            FeedResult(
+                source="new_deps",
+                status=FeedStatus.suspicious,
+                details="1/1 newly-added dependency/ies look low-scrutiny: flatmap-stream.",
+            ),
+        ]
+        result, modifiers = _apply_feed_modifiers(30.0, feeds)
+        assert result == pytest.approx(35.0)
+        assert [m.rule for m in modifiers] == ["new_dependency_low_scrutiny"]
+
+    def test_new_deps_clean_adds_no_bonus(self):
+        from chainwatch.analyzer.aggregator import _apply_feed_modifiers
+        feeds = [
+            FeedResult(source="new_deps", status=FeedStatus.clean, details="Nothing new."),
+        ]
+        result, modifiers = _apply_feed_modifiers(30.0, feeds)
+        assert result == pytest.approx(30.0)
+        assert modifiers == []
+
     def test_build_report_persists_base_score_and_modifiers(self):
         from chainwatch.analyzer.aggregator import build_report
         dims = _make_dimensions()  # base = 1.0*.20 + .5*.20 + .5*.10 = 3.5

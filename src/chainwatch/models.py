@@ -181,11 +181,14 @@ class FeedResult(BaseModel):
     """
     Normalised result from a single threat intelligence feed.
 
-    All three feed clients (OSV, Rekor, Scorecard) return this type so the
-    aggregator and output modules have a uniform interface.
+    All four feed clients (OSV, Rekor, Scorecard, new-dependency provenance)
+    return this type so the aggregator and output modules have a uniform
+    interface.
     """
 
-    source: str = Field(description="Feed identifier: 'osv', 'rekor', or 'scorecard'")
+    source: str = Field(
+        description="Feed identifier: 'osv', 'rekor', 'scorecard', or 'new_deps'"
+    )
     status: FeedStatus
     details: str = Field(description="Human-readable summary of the feed's finding")
     url: str | None = Field(
@@ -346,7 +349,7 @@ class RiskReport(BaseModel):
 
     # ── Feed results ─────────────────────────────────────────────────────────
     feed_results: list[FeedResult] = Field(
-        description="One entry per feed: osv, rekor, scorecard",
+        description="One entry per feed: osv, rekor, scorecard, new_deps",
     )
 
     # ── Score decomposition ──────────────────────────────────────────────────

@@ -92,13 +92,13 @@ class TestSmoke:
         }
 
     def test_diff_feed_results_present(self):
-        """Report must contain results from all three feeds."""
+        """Report must contain results from all four feeds."""
         runner = CliRunner()
         result = runner.invoke(cli, ["--json", "diff", "npm", "lodash", "4.17.20", "4.17.21"])
         data = json.loads(result.output.strip())
-        assert len(data["feed_results"]) == 3
+        assert len(data["feed_results"]) == 4
         feed_sources = {f["source"] for f in data["feed_results"]}
-        assert feed_sources == {"osv", "rekor", "scorecard"}
+        assert feed_sources == {"osv", "rekor", "scorecard", "new_deps"}
 
     def test_diff_schema_version_present(self):
         """schema_version field must be present for dataset reproducibility."""

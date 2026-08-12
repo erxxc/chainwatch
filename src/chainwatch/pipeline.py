@@ -59,7 +59,9 @@ async def run_diff_pipeline(
       2. Compute structured diff (engine + chunker)
       3. Concurrently:
            a. Send diff chunks to LLM for risk analysis
-           b. Query all three threat feeds (OSV, Rekor, Scorecard)
+           b. Query all four threat feeds (OSV, Rekor, Scorecard,
+              new-dependency provenance — the last keyed on
+              diff_summary.new_dependencies, not on package/version)
       4. Aggregate scores into composite RiskReport
 
     The concurrent stage (3) is the key architectural decision: LLM calls
@@ -121,6 +123,7 @@ async def run_diff_pipeline(
             FeedResult(source="osv", status=FeedStatus.no_data, details=no_feeds_msg),
             FeedResult(source="rekor", status=FeedStatus.no_data, details=no_feeds_msg),
             FeedResult(source="scorecard", status=FeedStatus.no_data, details=no_feeds_msg),
+            FeedResult(source="new_deps", status=FeedStatus.no_data, details=no_feeds_msg),
         ]
 
         llm_task = asyncio.create_task(
@@ -144,6 +147,7 @@ async def run_diff_pipeline(
                 ecosystem=ecosystem,
                 from_version=from_version,
                 to_version=to_version,
+                new_dependencies=diff_summary.new_dependencies,
             ) if not no_feeds else _stub_feeds()
         )
 

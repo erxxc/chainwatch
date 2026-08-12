@@ -11,9 +11,11 @@ LLM calls.
   scoped-name encoding, and error paths all covered).
 - LLM analysis runs in **stub mode** whenever `ANTHROPIC_API_KEY` starts with
   `sk-ant-test`, returning fixture dimensions without calling the API.
-- The OSV, Rekor, and Scorecard feed clients make real HTTP calls but degrade
-  gracefully to `no_data` when the network is unavailable; pass `--no-feeds` to
-  skip them entirely.
+- The OSV, Rekor, Scorecard, and new-dependency-provenance feed clients make
+  real HTTP calls but degrade gracefully to `no_data` when the network is
+  unavailable; pass `--no-feeds` to skip them entirely. The new-dependency
+  client additionally short-circuits to a network-free `clean` result
+  whenever a diff introduces no new dependencies — the common case.
 
 > Note: the integration smoke tests in `tests/integration/test_smoke.py` drive
 > the CLI end-to-end and **do** fetch real registry packages — run those only

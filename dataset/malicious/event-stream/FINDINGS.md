@@ -195,6 +195,29 @@ through a fresh, unfamiliar package**. Catching it requires either
 (b) treating any new-dep-from-a-new-maintainer as a HIGH-signal event
 regardless of the dep's contents.
 
+**Update (2026-08-12, see `dataset/findings/README.md` recommendation #12):
+(b) is now implemented** as a fourth feed client (`analyzer/feeds.py`'s
+new-dependency provenance check), directly motivated by this incident. For
+every dependency `diff_summary.new_dependencies` reports as newly added, it
+queries that dependency's *own* registry metadata and flags it low-scrutiny
+if it has few ever-published versions and (npm) at most one maintainer —
+exactly flatmap-stream's real shape. Live-queried 2026-08-12 (not from a
+saved corpus report — a direct call against the real npm registry today):
+`flatmap-stream` resolves to 1 maintainer, 1 version (npm's post-quarantine
+security placeholder, not its September 2018 state — see the caveat in
+`_query_new_dependency_provenance`'s docstring for why this is a
+present-day artifact, not a historical replay) and trips `suspicious`;
+`lodash`, checked alongside it as a real-world negative control, has 117
+versions and does *not* trip it despite also currently showing a single
+maintainer — confirming the AND-condition (thin version history, not just
+maintainer count alone) is doing real discriminating work, not just
+flagging every single-maintainer package. This does not retroactively
+change any of this incident's three committed reports above (none of them
+carry `flatmap-stream` in `new_dependencies` — the one diff that would have
+[`event-stream` 3.3.5→3.3.6] was never recoverable, per the position table
+below); the fix is forward-looking, same as recommendation #11's PyPI Rekor
+work.
+
 ### 2. Feed latency
 
 - **OSV.** Currently has advisory entries for `event-stream@3.3.6`,

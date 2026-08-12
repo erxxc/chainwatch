@@ -18,10 +18,12 @@ from cryptography.hazmat.primitives.asymmetric import ec
 
 from chainwatch.analyzer.feeds import (
     _attestation_certificate_der,
+    _fetch_dependency_provenance_stats,
     _identity_from_certificate,
     _identity_from_publisher,
     _parse_github_url,
     _pypi_rekor_search_url,
+    _query_new_dependency_provenance,
     _query_osv,
     _query_rekor,
     _query_scorecard,
@@ -495,6 +497,105 @@ class TestScorecard:
         assert "Could not resolve" in result.details
 
 
+# ── New-dependency provenance tests ─────────────────────────────────────────
+
+
+class TestFetchDependencyProvenanceStats:
+    @respx.mock
+    async def test_npm_returns_version_and_maintainer_counts(self):
+        respx.get("https://registry.npmjs.org/flatmap-stream").respond(json={
+            "versions": {"0.1.0": {}, "0.1.1": {}},
+            "maintainers": [{"name": "attacker", "email": "a@example.com"}],
+        })
+        async with httpx.AsyncClient() as client:
+            versions, maintainers = await _fetch_dependency_provenance_stats(
+                client, get_settings(), Ecosystem.npm, "flatmap-stream"
+            )
+        assert versions == 2
+        assert maintainers == 1
+
+    @respx.mock
+    async def test_pypi_returns_version_count_and_none_maintainers(self):
+        respx.get("https://pypi.org/pypi/some-pkg/json").respond(json={
+            "releases": {"1.0.0": [], "1.0.1": []},
+        })
+        async with httpx.AsyncClient() as client:
+            versions, maintainers = await _fetch_dependency_provenance_stats(
+                client, get_settings(), Ecosystem.pypi, "some-pkg"
+            )
+        assert versions == 2
+        assert maintainers is None
+
+
+class TestQueryNewDependencyProvenance:
+    async def test_clean_without_any_request_when_no_new_dependencies(self):
+        async with httpx.AsyncClient() as client:
+            result = await _query_new_dependency_provenance(client, Ecosystem.npm, [])
+        assert result.status == FeedStatus.clean
+
+    @respx.mock
+    async def test_suspicious_when_single_maintainer_few_versions(self):
+        """The flatmap-stream shape: one maintainer, a thin version history."""
+        respx.get("https://registry.npmjs.org/flatmap-stream").respond(json={
+            "versions": {"0.1.0": {}, "0.1.1": {}},
+            "maintainers": [{"name": "attacker", "email": "a@example.com"}],
+        })
+        async with httpx.AsyncClient() as client:
+            result = await _query_new_dependency_provenance(
+                client, Ecosystem.npm, ["flatmap-stream"]
+            )
+        assert result.status == FeedStatus.suspicious
+        assert "flatmap-stream" in result.details
+
+    @respx.mock
+    async def test_clean_when_dependency_well_established(self):
+        respx.get("https://registry.npmjs.org/lodash").respond(json={
+            "versions": {f"4.{i}.0": {} for i in range(30)},
+            "maintainers": [
+                {"name": "jdalton", "email": "j@example.com"},
+                {"name": "mathias", "email": "m@example.com"},
+            ],
+        })
+        async with httpx.AsyncClient() as client:
+            result = await _query_new_dependency_provenance(client, Ecosystem.npm, ["lodash"])
+        assert result.status == FeedStatus.clean
+
+    @respx.mock
+    async def test_pypi_flags_on_version_count_alone(self):
+        respx.get("https://pypi.org/pypi/obscure-pkg/json").respond(json={
+            "releases": {"0.0.1": []},
+        })
+        async with httpx.AsyncClient() as client:
+            result = await _query_new_dependency_provenance(
+                client, Ecosystem.pypi, ["obscure-pkg"]
+            )
+        assert result.status == FeedStatus.suspicious
+
+    @respx.mock
+    async def test_no_data_when_no_dependency_resolves(self):
+        respx.get("https://registry.npmjs.org/ghost-pkg").respond(status_code=404)
+        async with httpx.AsyncClient() as client:
+            result = await _query_new_dependency_provenance(
+                client, Ecosystem.npm, ["ghost-pkg"]
+            )
+        assert result.status == FeedStatus.no_data
+
+    @respx.mock
+    async def test_partial_failure_still_evaluates_the_rest(self):
+        respx.get("https://registry.npmjs.org/ghost-pkg").respond(status_code=404)
+        respx.get("https://registry.npmjs.org/flatmap-stream").respond(json={
+            "versions": {"0.1.1": {}},
+            "maintainers": [{"name": "attacker", "email": "a@example.com"}],
+        })
+        async with httpx.AsyncClient() as client:
+            result = await _query_new_dependency_provenance(
+                client, Ecosystem.npm, ["ghost-pkg", "flatmap-stream"]
+            )
+        assert result.status == FeedStatus.suspicious
+        assert "flatmap-stream" in result.details
+        assert "ghost-pkg" not in result.details
+
+
 # ── GitHub URL parser tests ───────────────────────────────────────────────────
 
 
@@ -529,7 +630,7 @@ class TestParseGithubUrl:
 
 class TestRunAllFeeds:
     @respx.mock
-    async def test_run_all_feeds_returns_three_results(self):
+    async def test_run_all_feeds_returns_four_results(self):
         # Mock OSV
         respx.post("https://api.osv.dev/v1/query").respond(json={"vulns": []})
         # Mock Rekor (npm attestations lookup — neither version attested)
@@ -556,9 +657,14 @@ class TestRunAllFeeds:
                 from_version="4.17.20",
                 to_version="4.17.21",
             )
-        assert len(results) == 3
+        assert len(results) == 4
         sources = {r.source for r in results}
-        assert sources == {"osv", "rekor", "scorecard"}
+        assert sources == {"osv", "rekor", "scorecard", "new_deps"}
+        # No new_dependencies passed → new_deps short-circuits to clean,
+        # no HTTP call needed (nothing mocked for it above, so this also
+        # proves no unexpected request was made).
+        new_deps_result = next(r for r in results if r.source == "new_deps")
+        assert new_deps_result.status == FeedStatus.clean
 
     @respx.mock
     async def test_run_all_feeds_graceful_on_exception(self):
@@ -582,7 +688,33 @@ class TestRunAllFeeds:
                 from_version="1.0.0",
                 to_version="1.0.1",
             )
-        # Should still get 3 results, even with the OSV failure
-        assert len(results) == 3
+        # Should still get 4 results, even with the OSV failure
+        assert len(results) == 4
         osv_result = next(r for r in results if r.source == "osv")
         assert osv_result.status == FeedStatus.no_data
+
+    @respx.mock
+    async def test_run_all_feeds_passes_through_new_dependencies(self):
+        """new_dependencies, when given, actually reaches the new_deps feed."""
+        respx.post("https://api.osv.dev/v1/query").respond(json={"vulns": []})
+        respx.get(url__regex=r".*/-/npm/v1/attestations/.*").respond(status_code=404)
+        respx.get("https://registry.npmjs.org/event-stream").respond(
+            json={"name": "event-stream"}
+        )
+        respx.get("https://registry.npmjs.org/flatmap-stream").respond(json={
+            "versions": {"0.1.1": {}},
+            "maintainers": [{"name": "attacker", "email": "a@example.com"}],
+        })
+
+        async with httpx.AsyncClient() as client:
+            results = await run_all_feeds(
+                client=client,
+                package="event-stream",
+                ecosystem=Ecosystem.npm,
+                from_version="3.3.5",
+                to_version="3.3.6",
+                new_dependencies=["flatmap-stream"],
+            )
+        new_deps_result = next(r for r in results if r.source == "new_deps")
+        assert new_deps_result.status == FeedStatus.suspicious
+        assert "flatmap-stream" in new_deps_result.details
