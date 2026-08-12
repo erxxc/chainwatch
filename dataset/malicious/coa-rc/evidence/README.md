@@ -70,18 +70,36 @@ not a DLL.
 | `compile.bat` | Placeholder. Header comment states the verified facts about this file (variable-expansion obfuscation, curl/wget/certutil download chain, `pastorcryptograph[.]at`, regsvr32/rundll32 execution, DanaBot). |
 | `sdd.dll` | Placeholder text file, not a binary. |
 
+### The silent-stub control (2026-08-11 follow-up)
+
+`compile-silent.js`, `compile-silent.bat`, `sdd-silent.dll` are the
+control condition for the narrative-leakage follow-up described in
+`../FINDINGS.md` — genuinely empty (0 bytes), no comments, no
+description of any kind. The only thing distinguishing that "to" tree
+from the real, live `from` tree is three new empty files with these exact
+real filenames and the real preinstall hook line — no narration at all.
+Committed here (even though they carry no information themselves) so the
+experiment is fully reproducible from this directory alone.
+
 ## What running this through chainwatch actually tests — and doesn't
 
-See `../FINDINGS.md` for the full result and why it's excluded from this
-corpus's precision/recall statistics. In short: the resulting reports
+See `../FINDINGS.md` for the full result — now two results, narrated vs.
+silent — and why both are excluded from this corpus's precision/recall
+statistics. In short: the four resulting reports
 (`inconclusive-report-coa-2.0.2-to-2.0.3-PARTIAL.json`,
-`inconclusive-report-rc-1.2.8-to-1.2.9-PARTIAL.json` — note the filenames
-deliberately don't match `report-*.json`, so they're excluded from every
-corpus-wide glob) score **HIGH** on both pairs. That is *not* evidence
-chainwatch would catch the real attack — the LLM's own free-text reasoning
-says outright that it's reading the placeholder comments' description, not
-analysing real code. What this experiment actually demonstrates is a
-different, real finding: a diff whose only "evidence" of maliciousness is
-descriptive prose (even clearly-labeled placeholder prose) can drive a high
-score on its own, without any real payload present. See `../FINDINGS.md`
-and `dataset/findings/README.md`'s overfitting caveat for what that means.
+`inconclusive-report-rc-1.2.8-to-1.2.9-PARTIAL.json`, and their
+`-SILENT-STUB` counterparts — note none of these filenames match
+`report-*.json`, so they're excluded from every corpus-wide glob) score
+**HIGH with narration present (56.0, 60.0), MEDIUM with it stripped out
+(36.0, 31.5)**. That gap — 20 to 28.5 points, enough to flip the severity
+bucket both times — is direct, controlled evidence that a diff whose only
+"evidence" of maliciousness is descriptive prose (even clearly-labeled
+placeholder prose) drives real, quantifiable score inflation on its own,
+independent of any actual payload. It's not the whole story, though: even
+with zero narration, the silent-stub pairs still land at MEDIUM, not LOW —
+a new preinstall hook pointing at unexplained files the package has no
+apparent reason to need is itself a real, defensible structural signal,
+and the LLM's own reasoning in the silent runs says so explicitly while
+appropriately lowering confidence across the board. See `../FINDINGS.md`
+and `dataset/findings/README.md` recommendation #8 for the full
+before/after and what it does and doesn't establish.

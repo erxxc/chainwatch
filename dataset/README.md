@@ -201,8 +201,11 @@ near the floor rule's trigger — hit a real sourcing wall instead: the
 actual payload was never publicly recovered by anyone, in any form more
 concrete than prose description (see `malicious/coa-rc/SOURCING.md`). The
 resulting placeholder-file experiment is **not** a corpus entry (filenamed
-`inconclusive-*`, excluded from every count in this document), but it
-surfaced a second, genuinely useful finding on its own: description
-embedded in a diff can drive a HIGH score without any real payload present
-— see `findings/README.md` recommendation #8. Recommendation #7 itself
-remains open.
+`inconclusive-*`, excluded from every count in this document), but a
+controlled follow-up turned it into a second, genuinely useful, quantified
+finding: stripping the placeholder comments down to genuinely empty stub
+files dropped both pairs from HIGH to MEDIUM (20–28.5 points) — direct
+evidence that descriptive prose embedded in a diff drives a measurable
+part of the score, independent of any real payload — see
+`findings/README.md` recommendation #8. Recommendation #7 itself remains
+open.

@@ -143,10 +143,13 @@ had the same fix, and not every hit is carried the same way. A follow-up
 attempt to source a real attack that would actually exercise
 `resource_exhaustion`/`_apply_dimension_floor` (`coa`/`rc`, npm 2021) hit
 a genuine sourcing wall — the real payload was never publicly recovered by
-anyone — and is deliberately **not** counted among these seven; the
-placeholder-file experiment that resulted surfaced a separate finding
-about the LLM layer worth reading before trusting any of these numbers on
-a famous, heavily-written-about incident (`dataset/malicious/coa-rc/`).
+anyone — and is deliberately **not** counted among these seven; a
+controlled experiment on the resulting placeholder files found that
+20–28.5 points of the score came from descriptive prose alone (stripping
+it to genuinely empty stub files dropped both pairs from HIGH to MEDIUM),
+a separate finding about the LLM layer worth reading before trusting any
+of these numbers on a famous, heavily-written-about incident
+(`dataset/malicious/coa-rc/`).
 A false-positive baseline (4 benign pairs, zero severity-level false
 positives) lives in
 `dataset/benign/`. Full detail, raw JSON reports, and reproduction

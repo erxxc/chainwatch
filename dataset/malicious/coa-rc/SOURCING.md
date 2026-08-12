@@ -59,13 +59,15 @@ verified `preinstall` hook line.
 |---|---|---|
 | `coa 2.0.2 → 2.0.3` | placeholder reconstruction, install hook + verified metadata only | `inconclusive-report-coa-2.0.2-to-2.0.3-PARTIAL.json` |
 | `rc 1.2.8 → 1.2.9` | placeholder reconstruction, install hook + verified metadata only | `inconclusive-report-rc-1.2.8-to-1.2.9-PARTIAL.json` |
+| `coa 2.0.2 → 2.0.3` *(follow-up)* | same, but with genuinely empty (0-byte) stub files instead of narrated placeholders — a controlled comparison, added 2026-08-11 | `inconclusive-report-coa-2.0.2-to-2.0.3-SILENT-STUB.json` |
+| `rc 1.2.8 → 1.2.9` *(follow-up)* | same | `inconclusive-report-rc-1.2.8-to-1.2.9-SILENT-STUB.json` |
 
-**Both filenames are deliberately prefixed `inconclusive-` and don't match
-`report-*.json`** — the naming convention this corpus already uses to
+**All four filenames are deliberately prefixed `inconclusive-` and don't
+match `report-*.json`** — the naming convention this corpus already uses to
 exclude pre-fix/experimental snapshots from every corpus-wide count and
 table (see `dataset/findings/README.md`'s "Reproducing this analysis").
-These two reports are not part of this corpus's precision/recall
-statistics, are not listed in the corpus overview table, and should not be
-cited as evidence chainwatch would catch a real attack shaped like this
-one. See `FINDINGS.md` for why, and for what the result actually shows
-instead.
+None of these four reports are part of this corpus's precision/recall
+statistics, none are listed in the corpus overview table, and none should
+be cited as evidence chainwatch would catch a real attack shaped like this
+one. See `FINDINGS.md` for why, and for what the comparison between the
+narrated and silent-stub conditions actually shows instead.

@@ -31,9 +31,12 @@ plays any role in `ctx`'s result. See "The overfitting caveat, stated as
 plainly as possible" below, and recommendation #7's resolution. A separate
 attempt to source a *seventh* incident specifically to stress-test the two
 newest mechanisms hit a real sourcing wall and produced an inconclusive
-result — not counted in the sixteen — that surfaced a second, distinct
-validity concern of its own. See "A second, distinct caveat: narrative
-leakage" below before treating this write-up's numbers as fully settled.
+result — not counted in the sixteen — that a deliberate follow-up then
+turned into a second, distinct, *quantified* validity concern: 20–28.5
+points of a report's score can come from descriptive prose sitting inside
+a diff rather than from any code being analysed. See "A second, distinct
+caveat: narrative leakage" below before treating this write-up's numbers
+as fully settled.
 
 ## How the corpus got here — three gaps, four fixes, all in one day
 
@@ -201,30 +204,51 @@ two *scoring rules* being validated only against the corpus that produced
 them; this one is about whether the *evaluation method itself* — diffing
 code and asking an LLM to score it — can be quietly driven by narrative
 content sitting inside the diff rather than by the code being analysed.
-Every canonical incident in this corpus is a famous, publicly-documented
-attack; this experiment doesn't prove the LLM is recalling any of them
-from training data specifically, but it does prove, directly and without
-needing that assumption, that description can substitute for code. One
-reassuring detail: the model didn't treat every dimension identically — it
-reserved high confidence (0.9) for the one fact it could verify directly
-from diff structure (`install_hooks`, a real `preinstall` key was
-genuinely added) and kept every inferred dimension at low confidence
-(0.2–0.5), a real discrimination between "I can see this" and "I'm told
-this" even though both pushed the same direction here. Full breakdown in
-`dataset/malicious/coa-rc/FINDINGS.md`.
 
-**This result is not part of this corpus's statistics.** The two reports
+**A follow-up (also 2026-08-11) turned that suspicion into a controlled,
+quantified measurement.** Same two directories, but `compile.js`/
+`compile.bat`/`sdd.dll` were replaced with genuinely empty (0-byte) stub
+files — no comments, no description of any kind — isolating narration as
+the only variable. Both pairs dropped from HIGH to MEDIUM: `coa` 56.0 →
+36.0 (−20.0), `rc` 60.0 → 31.5 (−28.5). That's the narration's
+directly-measured contribution — large enough to flip the severity bucket
+both times. It isn't the whole signal, though: the silent-stub condition
+still scored `install_hooks=8.0` at confidence 0.7 (down from 10.0/0.9),
+and the model's own reasoning explains why without any narration to draw
+on — a new preinstall hook pointing at unexplained, empty files, on a
+package with no apparent reason to need either, is itself a real,
+lower-confidence structural signal, correctly distinguished from the
+narrated condition's much higher confidence. Full comparison table and
+reasoning excerpts in `dataset/malicious/coa-rc/FINDINGS.md`.
+
+Even this controlled comparison has a limit worth stating outright: every
+canonical incident in this corpus is a famous, publicly-documented attack,
+and the silent-stub condition removes the *comments* but not the model's
+general background knowledge that `coa`/`rc` was compromised in 2021 — so
+this still doesn't cleanly prove the effect is "reading our prose" rather
+than "recognising a known incident regardless of what's on screen," only
+that *something* beyond the visible, empty files is doing real, measurable
+work. One reassuring detail either way: the model didn't treat every
+dimension identically in either condition — it reserved its highest
+confidence for the one fact it could verify directly from diff structure
+(`install_hooks`) and kept every inferred dimension at lower confidence, a
+real discrimination between "I can see this" and "I'm told this" (or "I
+recall this"), even though all of it pushed in the same direction.
+
+**None of this is part of this corpus's statistics.** All four reports
 (`inconclusive-report-coa-2.0.2-to-2.0.3-PARTIAL.json`,
-`inconclusive-report-rc-1.2.8-to-1.2.9-PARTIAL.json`) are filenamed to be
-excluded from every `report-*.json` glob used throughout this document and
-are not counted in the corpus overview table or confusion matrix below.
-One thing it does confirm, consistent with `ctx`: `install_hooks=10.0` at
-confidence 0.9 meets `_apply_dimension_floor`'s trigger condition on both
-pairs, and the floor rule still never fires, because the base score
-already clears 30 without it — the second time (of two attempted, both
-inconclusive for the floor rule's original purpose) that a confidently-
-scored dimension has reached the trigger threshold without ever needing
-the floor to matter.
+`inconclusive-report-rc-1.2.8-to-1.2.9-PARTIAL.json`, and their
+`-SILENT-STUB` counterparts) are filenamed to be excluded from every
+`report-*.json` glob used throughout this document and are not counted in
+the corpus overview table or confusion matrix below. One thing this does
+confirm, consistent with `ctx`: `install_hooks=10.0` at confidence 0.9
+(narrated condition only — the silent-stub condition doesn't even reach
+the trigger) meets `_apply_dimension_floor`'s trigger condition, and the
+floor rule still never fires, because the base score already clears 30
+without it. Across all six out-of-corpus runs attempted so far (`ctx`'s
+two pairs; `coa`/`rc`'s narrated and silent conditions, two packages
+each), `_apply_dimension_floor` has fired exactly zero times outside the
+two cases it was built from.
 
 ## Corpus overview
 
@@ -661,24 +685,27 @@ work, not attempted here.
    recovered by anyone (see `dataset/malicious/coa-rc/SOURCING.md`), and
    two other candidates (a 2026 DDoS-botnet campaign, `torchtriton`) failed
    for their own separate reasons. This recommendation is still open.**
-8. **Narrative leakage: description can substitute for code in the LLM
-   layer's scoring, at least under one directly-observed condition.** The
-   `coa`/`rc` attempt above used explicitly-labeled placeholder files (no
-   fabricated attacker logic, real verified facts stated as prose) in
-   place of the unrecoverable real payload, on the prediction that this
-   would score low. It scored HIGH on both pairs instead — the model's own
-   reasoning text says, dimension by dimension, that it's scoring what the
-   placeholder comments *say* happened, not any code it can see. This is a
-   distinct concern from recommendation #7/the overfitting caveat above:
+8. **✅ Tested (2026-08-11). Narrative leakage: description measurably
+   substitutes for code in the LLM layer's scoring.** The `coa`/`rc`
+   attempt above used explicitly-labeled placeholder files (no fabricated
+   attacker logic, real verified facts stated as prose) in place of the
+   unrecoverable real payload, on the prediction that this would score
+   low. It scored HIGH on both pairs instead. A controlled follow-up
+   (same two directories, but with the placeholder comments stripped down
+   to genuinely empty 0-byte stub files) isolated the effect directly:
+   both pairs dropped from HIGH to MEDIUM (`coa` 56.0→36.0, `rc`
+   60.0→31.5) — 20 to 28.5 points attributable to narration alone. This is
+   a distinct concern from recommendation #7/the overfitting caveat above:
    it's not about a scoring *rule* being tuned on this corpus, it's about
    whether prose sitting inside a diff can drive the LLM layer's score on
-   its own, independent of whatever code is actually present. Worth
-   testing deliberately in a follow-up: does a diff with *no* payload and
-   *no* descriptive comments (a bare install-hook addition with genuinely
-   empty stub files) score meaningfully lower than one with placeholder
-   narration? This corpus's `coa`/`rc` attempt didn't isolate that
-   variable — it's a natural next experiment, not a conclusion this
-   write-up can draw yet. See `dataset/malicious/coa-rc/FINDINGS.md`.
+   its own, independent of whatever code is actually present — and now
+   there's a measured effect size, not just a suspicion. What the
+   follow-up still can't isolate: whether the residual signal in the
+   silent-stub condition (still MEDIUM, not LOW — `install_hooks=8.0` at
+   confidence 0.7 from structural evidence alone) reflects sound reasoning
+   about an unexplained install hook, the model's background knowledge of
+   this specific famous incident, or some mix of both. See
+   `dataset/malicious/coa-rc/FINDINGS.md` for the full breakdown.
 9. **`env_conditional`'s LLM-observed behavior is broader than its stated
    definition.** `models.py` describes it as "conditional logic gated on
    env vars, platform, or CI detection" (control flow that *branches* on

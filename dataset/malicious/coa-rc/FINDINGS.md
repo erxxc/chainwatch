@@ -1,12 +1,14 @@
 # coa / rc — chainwatch findings
 
-**Not a canonical corpus entry — read `SOURCING.md` first.** Both reports
-here (`inconclusive-report-coa-2.0.2-to-2.0.3-PARTIAL.json`,
-`inconclusive-report-rc-1.2.8-to-1.2.9-PARTIAL.json`) are excluded from
-every corpus-wide precision/recall statistic in `dataset/findings/README.md`
-by filename convention. This document exists because the *attempt*
-produced a genuinely useful, unexpected finding — not the one it was
-built to test.
+**Not a canonical corpus entry — read `SOURCING.md` first.** All four
+reports here (`inconclusive-report-coa-2.0.2-to-2.0.3-PARTIAL.json`,
+`inconclusive-report-rc-1.2.8-to-1.2.9-PARTIAL.json`, and their
+`-SILENT-STUB` counterparts, added 2026-08-11 as a deliberate follow-up)
+are excluded from every corpus-wide precision/recall statistic in
+`dataset/findings/README.md` by filename convention. This document exists
+because the *attempt* produced a genuinely useful, unexpected finding —
+not the one it was built to test — and a follow-up experiment then
+confirmed and quantified it directly.
 
 ## What this was supposed to test, and what happened instead
 
@@ -59,20 +61,65 @@ comments describe...", "explicitly state...", "the placeholder comments do
 not mention..."). This is not a hidden or inferred mechanism — the model
 told us exactly what it was doing.
 
+## The follow-up: isolating narration as the variable (2026-08-11)
+
+The result above is suggestive but not, on its own, controlled — the
+narrated placeholders and a hypothetical silent version were never
+actually compared. This follow-up closes that gap: same real `from`
+tarball, same real `preinstall` hook, same three real filenames present —
+but `compile.js`/`compile.bat`/`sdd.dll` are now genuinely **empty (0
+bytes)**, with no comments, no description, nothing. See
+`evidence/README.md`'s "silent-stub control" section for the exact files.
+
+| pair | condition | risk | severity | llm_base_score |
+|---|---|---|---|---|
+| `coa 2.0.2 → 2.0.3` | narrated placeholder | 56.0 | HIGH | 51.0 |
+| `coa 2.0.2 → 2.0.3` | **silent stub** | **36.0** | **MEDIUM** | 31.0 |
+| `rc 1.2.8 → 1.2.9` | narrated placeholder | 60.0 | HIGH | 55.0 |
+| `rc 1.2.8 → 1.2.9` | **silent stub** | **31.5** | **MEDIUM** | 26.5 |
+
+**The gap is large and it flips the severity bucket both times** — 20.0
+points for `coa` (HIGH → MEDIUM), 28.5 points for `rc` (HIGH → MEDIUM).
+That's direct, controlled evidence, not just a plausible inference: the
+narration in the placeholder comments was doing real, quantifiable work.
+
+It's not the *whole* story, though, and the silent-stub result is
+interesting in its own right. The LLM still scored `install_hooks=8.0` at
+confidence 0.7 — lower than the narrated run's 10.0/0.9, but still
+elevated — and its reasoning explains why without any narration to lean
+on: *"The 'coa' package is a simple CLI options parser with no legitimate
+need for native compilation or a preinstall script... the actual content
+of compile.js and compile.bat is not visible in the diff (shown as 0
+lines), preventing full analysis... all other dimensions are scored
+conservatively due to truncated content."* That's a genuinely sound piece
+of reasoning: a new preinstall hook pointing at unexplained, empty files
+on a package with no apparent reason to need either is itself a real
+structural red flag, and the model correctly (a) flagged it, (b) said
+plainly that it couldn't fully analyse what it couldn't see, and (c) kept
+the resulting severity at MEDIUM rather than jumping to HIGH the way the
+narrated run did. Zero narration didn't produce zero suspicion — it
+produced *calibrated* suspicion, capped well below what naming the actual
+attack (DanaBot, the download chain, the obfuscation technique) produced.
+
 ## Why this is a real, if narrow, finding
 
 **A diff whose only "evidence" of maliciousness is descriptive prose — even
 prose that plainly labels itself a placeholder, written by us, not an
-attacker — is enough to drive a HIGH severity score, with no real payload
-present at all.** This wasn't a training-data-recognition question we set
-out to test (we can't cleanly separate "the model recognises this famous,
-well-documented 2021 incident by name" from "the model is taking our
-placeholder comments' claims at face value" — both are plausible and both
-would produce the same observed behaviour; this experiment doesn't
-distinguish them). But the mechanism that's directly demonstrated, in the
-model's own reasoning text, doesn't require assuming training-data recall
-at all: **narrative description embedded in a diff substitutes for the
-code it describes.**
+attacker — drives a substantial, now-quantified score increase (20–28.5
+points, enough to flip HIGH vs. MEDIUM both times), on top of whatever
+structural signal is present regardless.** This wasn't a
+training-data-recognition question we set out to test (we still can't
+cleanly separate "the model recognises this famous, well-documented 2021
+incident by name" from "the model is taking our placeholder comments'
+claims at face value" — both are plausible and both would produce the same
+observed behaviour; the silent-stub control removes the comments but
+doesn't remove the model's general knowledge that `coa`/`rc` were
+compromised in 2021, so even this experiment can't fully isolate that
+question). But the mechanism that's directly demonstrated, in the model's
+own reasoning text and now in a controlled score comparison, doesn't
+require assuming training-data recall at all: **narrative description
+embedded in a diff substitutes for the code it describes, and the effect
+is large enough to measure.**
 
 This matters for the corpus's broader validity in a way distinct from the
 "overfitting" caveat already documented in `dataset/findings/README.md`.
@@ -103,27 +150,38 @@ pushed the composite score to the same place.
 
 ## What this does confirm, consistent with `ctx`
 
-`install_hooks=10.0` at confidence 0.9 technically meets
-`_apply_dimension_floor`'s trigger threshold on both pairs — and, exactly
-as with `ctx`'s `0.1.2-1` pair, **the floor rule never fires**, because
-`llm_base_score` already clears 30 (51.0 and 55.0) before the floor rule
-is even consulted. This is now the *second* out-of-corpus-styled test
-where a confidently-scored dimension reaches the floor's trigger condition
-without ever needing the floor — both times because realistic multi-signal
-attacks (even a placeholder-narrated one) tend to push several correlated
-dimensions up together, not just one. `_apply_dimension_floor` remains
-validated only against the two cases it was built from
-(`colors`, node-ipc's diluted registry pair) — see recommendation #7 in
-`dataset/findings/README.md`, still open.
+`install_hooks=10.0` at confidence 0.9 (narrated condition) technically
+meets `_apply_dimension_floor`'s trigger threshold on both pairs — and,
+exactly as with `ctx`'s `0.1.2-1` pair, **the floor rule never fires**,
+because `llm_base_score` already clears 30 (51.0 and 55.0) before the
+floor rule is even consulted. This is now the *second* out-of-corpus-styled
+test where a confidently-scored dimension reaches the floor's trigger
+condition without ever needing the floor — both times because realistic
+multi-signal attacks (even a placeholder-narrated one) tend to push several
+correlated dimensions up together, not just one. The silent-stub condition
+doesn't even reach the trigger in the first place (`install_hooks=8.0`,
+confidence 0.7 — below both the ≥9.0 score and ≥0.9 confidence bars), so
+across all six out-of-corpus runs attempted so far (`ctx`'s two pairs;
+`coa`/`rc`'s narrated and silent conditions, two packages each),
+`_apply_dimension_floor` has fired exactly zero times outside the two
+cases it was built from (`colors`, node-ipc's diluted registry pair) — see
+recommendation #7 in `dataset/findings/README.md`, still open.
 
 ## Position in the detection matrix
 
 Deliberately **not** included in `dataset/findings/README.md`'s corpus
-overview table or confusion matrix. If it were counted, it would read as
-two more correct HIGH classifications — but that would overstate what
-happened. The honest summary: an attempted sixth-incident reconstruction
-that hit a real, well-documented sourcing wall, produced a methodologically
-invalid result for its original purpose, and surfaced a more interesting
-finding about the evaluation method itself along the way. See
-`dataset/findings/README.md`'s overfitting caveat for where this fits
-alongside the corpus's other open validity questions.
+overview table or confusion matrix, for any of the four runs. If the
+narrated pairs alone were counted, they'd read as two more correct HIGH
+classifications; if only the silent-stub pairs were counted, two correct
+MEDIUMs — either framing would overstate what happened, since the honest
+finding is the *gap between them*, not either result in isolation. The
+honest summary: an attempted sixth-incident reconstruction that hit a
+real, well-documented sourcing wall, produced a methodologically invalid
+result for its original purpose (testing `_apply_dimension_floor`), and
+a deliberate follow-up then turned that invalidity into a controlled,
+quantified finding about the evaluation method itself — narration inside a
+diff measurably inflates the score, by 20–28.5 points in this case, on top
+of a real, defensible, lower-confidence structural signal that persists
+even with zero narration. See `dataset/findings/README.md`'s overfitting
+caveat for where this fits alongside the corpus's other open validity
+questions.
