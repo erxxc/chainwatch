@@ -11,7 +11,7 @@ abstract: >-
   independently-sourced-and-verified malicious package incidents.
 type: software
 authors:
-  - alias: erxxc
+  - name: erxxc
 repository-code: "https://github.com/erxxc/chainwatch"
 url: "https://github.com/erxxc/chainwatch"
 license: MIT
