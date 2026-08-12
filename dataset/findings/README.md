@@ -1,7 +1,7 @@
 # Cross-corpus findings: precision, recall, and detection gaps
 
 This is "the write-up" referenced throughout `dataset/README.md` — the
-synthesis across all sixteen reports in the corpus, addressing the four
+synthesis across all eighteen reports in the corpus, addressing the four
 research questions from the top-level `README.md`:
 
 1. Which detection layer (LLM, feeds, or both) catches each known attack
@@ -10,29 +10,36 @@ research questions from the top-level `README.md`:
 4. Comparison with signature-based classifiers on the same ground truth
 
 **Read this whole section before citing any number below — especially the
-headline one.** As of 2026-08-11, every one of this corpus's seven
+headline one.** As of 2026-08-11, every one of this corpus's nine
 malicious-labelled examples scores above LOW: **100% precision, 100%
 recall** at the default classification rule. That number is real — it's
-computed directly from the sixteen committed `report-*.json` files, not
+computed directly from the eighteen committed `report-*.json` files, not
 estimated — but it comes with a methodological caveat serious enough to
 state before anything else: **two of the code changes that produced it
-were derived by directly observing failures in four of these five
+were derived by directly observing failures in four of these six
 incidents, and verified not to cause false positives only against that same
 corpus.** That's about as close to "tuned on the test set" as empirical
-work gets. The fifth incident (`ctx`, added 2026-08-11) is a partial
-answer to that problem, not a full one — it's the corpus's first
-ground-truth positive sourced and reconstructed *after* both fixes existed,
-specifically to check whether they generalise. It does validate that the
-*rest* of the pipeline (the original five dimensions, working without
-either new mechanism) correctly classifies a real attack shaped
-differently from anything that came before it. It does **not** validate
-`resource_exhaustion` or `_apply_dimension_floor` themselves — neither one
-plays any role in `ctx`'s result. See "The overfitting caveat, stated as
-plainly as possible" below, and recommendation #7's resolution. A separate
-attempt to source a *seventh* incident specifically to stress-test the two
-newest mechanisms hit a real sourcing wall and produced an inconclusive
-result — not counted in the sixteen — that a deliberate follow-up then
-turned into a second, distinct, *quantified* validity concern: 20–28.5
+work gets. Two incidents added after both fixes existed, specifically to
+check whether they generalise, tell two different parts of that story.
+`ctx` validates that the *rest* of the pipeline (the original five
+dimensions, working without either new mechanism) correctly classifies a
+real attack shaped differently from anything that came before it, but
+never engages `resource_exhaustion` or `_apply_dimension_floor` at all.
+`Lucide Proxy` (added 2026-08-11) goes one step further: it's a real DoS
+attack, shaped nothing like `colors`'s infinite loop (an async, unbounded
+polling beacon instead of a synchronous blocking one), and
+`resource_exhaustion` correctly recognises it — 8.0/10 at confidence 0.95,
+the first out-of-corpus validation this specific dimension has had.
+`_apply_dimension_floor` still doesn't fire (8.0 falls short of its ≥9.0
+trigger), and the final score is floored to HIGH by a fast, real OSV
+`MAL-*` hit regardless of what either LLM mechanism does — so this is real
+progress on recommendation #7, not a full resolution of it. See "The
+overfitting caveat, stated as plainly as possible" below, and
+recommendation #7's (still partial) resolution. A separate attempt to
+source an attack specifically to stress-test the floor rule (`coa`/`rc`)
+hit a real sourcing wall and produced an inconclusive result — not counted
+in the eighteen — that a deliberate follow-up then turned into a second,
+distinct, *quantified* validity concern: 20–28.5
 points of a report's score can come from descriptive prose sitting inside
 a diff rather than from any code being analysed. See "A second, distinct
 caveat: narrative leakage" below before treating this write-up's numbers
@@ -107,7 +114,31 @@ observation from the same incident (recommendation #9, `env_conditional`'s
 scope) remains open, undecided by design rather than left broken. See
 `malicious/ctx/FINDINGS.md` for the full breakdown.
 
-All tables are computed directly from the sixteen committed `report-*.json`
+**A sixth incident, `Lucide Proxy` (npm, added 2026-08-11), was chosen
+specifically to test what `ctx` didn't: a real DoS attack, shaped
+differently from `colors`'s synchronous infinite loop.** 148 npm packages
+disguised as student web-proxy tools silently recruited visiting browsers
+into a DDoS botnet; the recoverable fragment of that payload (an
+unconditional, asynchronous `setInterval` polling loop with no exit
+condition — see `malicious/lucide-proxy/`) is structurally nothing like
+`colors`'s blocking `for` loop. `resource_exhaustion` scored it 8.0/10 at
+confidence 0.95 — real, independent, out-of-corpus validation that the
+dimension generalises past the one shape it was designed around.
+`_apply_dimension_floor` still didn't fire (8.0 falls short of its ≥9.0
+trigger), and the final composite score (55.0, HIGH on both of its two
+pairs) is entirely floor-imposed by a real, unusually *fast* OSV `MAL-*`
+hit — not by either LLM mechanism. Read this as partial, honest progress
+on recommendation #7, not its resolution: one of its two open questions
+now has a real answer, the other still doesn't. Unlike every other
+incident in this corpus, no live or archived tarball exists on either
+side — what's real here is two independently-recovered payload fragments
+from the campaign's own external infrastructure, layered onto an
+explicitly synthetic package scaffold. See `malicious/lucide-proxy/
+FINDINGS.md` for the full breakdown, including why `resource_exhaustion`
+scored *lower* (6.0, not 8.0) when a second, unrelated real payload file
+was added alongside it — a genuinely new, unresolved calibration question.
+
+All tables are computed directly from the eighteen committed `report-*.json`
 files plus live OSV queries; see "Reproducing this analysis" at the end.
 Several report-shaped files are deliberately excluded from that count and
 every table below: pre-fix snapshots preserved for history
@@ -166,14 +197,26 @@ genuinely novel attack shape it was never tuned against, with zero feed
 contribution to lean on. That's meaningful — it says the pipeline's core
 detection isn't fragile to shapes outside its original design set — but it
 is not evidence about the two mechanisms this caveat is actually worried
-about. **The single highest-value next step is still what recommendation
-#7 said before `ctx` existed: find a ground-truth positive that actually
-exercises `resource_exhaustion` or `_apply_dimension_floor` from outside
-the four incidents that shaped them** — a different DoS shape than
-`colors`'s infinite loop, or a single-vector attack that happens to land a
-dimension at 9-10/confidence ≥0.9 without being DoS-shaped at all. `ctx`
-doesn't do either, by construction (its attack shape doesn't touch
-`resource_exhaustion`), so this remains open.
+about.
+
+**Second update, same day: `Lucide Proxy` closes half of what `ctx` left
+open.** Chosen specifically for a DoS shape unlike `colors`'s — an
+asynchronous, unbounded polling loop rather than a synchronous blocking
+one — recovered as real, byte-verified code from the attack campaign's own
+external infrastructure (see `malicious/lucide-proxy/`).
+`resource_exhaustion` scored it 8.0/10 at confidence 0.95, correctly
+naming the pattern ("no termination condition, no stop mechanism, and no
+rate limit") on an attack it had no way to have been tuned against. **This
+is real: the dimension itself is no longer validated only against
+`colors`.** `_apply_dimension_floor` is a different story — 8.0 falls
+short of the ≥9.0 trigger the rule requires, so it still hasn't fired
+outside the two cases (`colors`, node-ipc's diluted registry pair) that
+built it, across every out-of-corpus attempt made so far. **The single
+highest-value next step is now narrower than it was before `Lucide Proxy`:
+find a ground-truth positive where a dimension lands specifically in the
+9-10/confidence ≥0.9 range without being one of the two cases the floor
+rule was built from** — `resource_exhaustion` generalising is no longer
+the open half of this question; the floor rule generalising still is.
 
 ## A second, distinct caveat: narrative leakage, surfaced by an inconclusive attempt
 
@@ -278,6 +321,8 @@ two cases it was built from.
 | **ua-parser-js** | **0.7.28→0.7.29** *(reconstructed, post-fix)* | **malicious** (the actual miner/credential-stealer attack) | **67.0** | **HIGH** |
 | **ctx** | **0.1.2→0.1.2-1** *(reconstructed, rerun post-fix)* | **malicious** (first malicious release, plain-text exfil) | **42.5** | **MEDIUM** |
 | **ctx** | **0.1.2→0.2.5** *(reconstructed, rerun post-fix)* | **malicious** (final malicious release, base64 full-env exfil) | **56.5** | **HIGH** |
+| **Lucide Proxy** | **ilovefemboys 1.1.3→2.0.0, cdn.js only** *(reconstructed)* | **malicious** (real DDoS-beacon fragment, browser-recruitment campaign) | **55.0** | **HIGH** |
+| **Lucide Proxy** | **ilovefemboys 1.1.3→2.0.0, cdn.js+sw.js** *(reconstructed)* | **malicious** (same campaign, + real ad-hijack service worker) | **55.0** | **HIGH** |
 
 ## Precision / recall (Figure 1)
 
@@ -286,11 +331,11 @@ Confusion matrix at the default classification rule — **flagged = severity
 
 | | Predicted malicious | Predicted benign |
 |---|---|---|
-| **Actually malicious** | TP = 7 (all seven malicious-labelled pairs) | FN = 0 |
+| **Actually malicious** | TP = 9 (all nine malicious-labelled pairs) | FN = 0 |
 | **Actually benign** | FP = 0 | TN = 9 |
 
-- **Precision:** 7/7 = **100%**
-- **Recall:** 7/7 = **100%**
+- **Precision:** 9/9 = **100%**
+- **Recall:** 9/9 = **100%**
 - **Specificity / true-negative rate:** 9/9 = **100%**
 - **False-positive rate:** 0/9 = **0%**
 
@@ -300,23 +345,28 @@ diff above LOW, and — as of the fixes landed this session — it now
 correctly flags every real attack in this corpus, at three different
 severities that roughly track real severity:
 
-- **Four HIGHs, carried by three different mechanisms.** node-ipc's
+- **Six HIGHs, carried by four different mechanisms.** node-ipc's
   reconstructed wiper (62.5) is carried entirely by the LLM layer —
   `network_calls`/`obfuscation` both hit the corpus max, no feed rule
   needed. flatmap-stream's reconstructed bootstrap payload (60.0) leans
   partly on a feed rule: its LLM base score alone (38.5) only reaches
   MEDIUM, and it's OSV's `malicious_floor` firing on `MAL-2025-20690` — the
-  only time that ever happens anywhere in this corpus — that pushes it
+  only *slow* time that happens anywhere in this corpus — that pushes it
   into HIGH. ua-parser-js's reconstructed miner attack (67.0) is the
   highest score in the corpus, needing one code fix (`SOURCE_EXTENSIONS`)
   to even reach its payload files and benefiting, perhaps coincidentally,
   from `resource_exhaustion` reading its cryptominer as resource abuse.
-  `ctx`'s complete-attack pair (56.5) is the newest arrival — carried
-  entirely by the original five dimensions, no feed contribution at all,
-  and only reaches HIGH after this session's `requirements.txt`/
-  `maintainer_changed` diff-engine fixes gave `dependency_changes`/
-  `env_conditional` the structured signal they'd been missing (see
-  `malicious/ctx/FINDINGS.md`).
+  `ctx`'s complete-attack pair (56.5) is carried entirely by the original
+  five dimensions, no feed contribution at all, and only reaches HIGH
+  after this session's `requirements.txt`/`maintainer_changed`
+  diff-engine fixes gave `dependency_changes`/`env_conditional` the
+  structured signal they'd been missing (see `malicious/ctx/FINDINGS.md`).
+  Lucide Proxy's two pairs (55.0 each) are the newest arrivals and a
+  fourth distinct mechanism again: `resource_exhaustion` genuinely fires
+  (8.0/6.0, real signal on a real DoS shape unlike `colors`'s) but falls
+  short of the floor rule's threshold, and OSV's `malicious_floor` firing
+  *fast* this time — days, not years — is what actually determines the
+  final bucket (see `malicious/lucide-proxy/FINDINGS.md`).
 - **Two MEDIUMs, both reached via the new floor rule, for different
   underlying reasons.** `colors` (35.0) is the case the floor rule was
   built for: a single dimension (`resource_exhaustion=10.0`) carries the
@@ -335,10 +385,11 @@ severities that roughly track real severity:
   ordering, and the most direct evidence in this corpus that detection
   doesn't depend on the newest scoring machinery to work at all.
 - **Zero misses, for the first time in this corpus's history** — but see
-  the overfitting caveat above before treating that as validated for
-  `resource_exhaustion`/`_apply_dimension_floor` specifically. `ctx`
-  strengthens confidence in the rest of the pipeline; it doesn't exercise
-  either of the two newest rules.
+  the overfitting caveat above before treating that as fully validated.
+  `resource_exhaustion` now has real, independent, out-of-corpus support
+  (`Lucide Proxy`); `_apply_dimension_floor` still doesn't — every one of
+  its firings across this whole corpus remains the two cases it was built
+  from.
 
 ### What separates the floor-triggered MEDIUMs from the other HIGHs, dimension by dimension
 
@@ -397,6 +448,35 @@ llm_base_score` exactly for both, unaffected by the fix — the only pairs in
 the whole corpus with zero feed-modifier contribution of any kind (see
 `malicious/ctx/FINDINGS.md` observation 5).
 
+`Lucide Proxy`'s two pairs are the opposite case from `ctx`'s: real,
+independent `resource_exhaustion` signal, but a composite score that ends
+up entirely feed-determined anyway:
+
+| dimension | Lucide Proxy, cdn.js only (HIGH) | Lucide Proxy, cdn.js+sw.js (HIGH) |
+|---|---|---|
+| network_calls | 8.5 | 8.0 |
+| obfuscation | 3.0 | 2.0 |
+| install_hooks | 2.0 | 1.0 |
+| env_conditional | 1.0 | 1.0 |
+| dependency_changes | 1.0 | 2.0 |
+| resource_exhaustion | **8.0** | **6.0** |
+| **llm_base_score** | 44.5 | 37.0 |
+| **risk_score (feed-adjusted)** | **55.0** | **55.0** |
+
+Both pairs land on the exact same final number (55.0) despite different
+`llm_base_score`s, because OSV's `malicious_floor` rule floors to a flat
+55 whenever it fires — `+10.5` and `+18.0` are different-sized corrections
+converging on the same floor by construction, not agreement between the
+two pairs. `resource_exhaustion`'s 8.0 (cdn.js alone) is this corpus's
+first real evidence the dimension recognises a DoS shape it wasn't built
+from — an unbounded *asynchronous* polling loop, not `colors`'s
+synchronous blocking one — but it falls short of `_apply_dimension_floor`'s
+≥9.0 trigger, so the floor rule plays no role in either pair; OSV's feed
+rule alone determines the bucket here. See `malicious/lucide-proxy/
+FINDINGS.md` observation 2 for why `resource_exhaustion` scored *lower*
+(6.0, not 8.0) with a second real file present — a genuinely open
+calibration question this corpus can name but not yet explain.
+
 An earlier draft of this write-up, working from only node-ipc's two
 positives, proposed **"any single dimension ≥ 7"** as a candidate
 classification rule. It held for both node-ipc pairs, held for
@@ -415,74 +495,97 @@ isn't a validated general rule.
 
 ## RQ1 — which detection layer catches each known attack
 
-All five incidents in this corpus have had their real attack payload
+All six incidents in this corpus have had their real attack payload
 tested for real against the LLM layer — node-ipc and colors via git-commit
 reconstruction, event-stream/flatmap-stream via CDN archaeology,
 ua-parser-js via a real base tarball with the recovered `preinstall`
 scripts spliced on, ctx via independently cross-corroborated archives with
-no live tarball on either side — and, as of 2026-08-11, all seven
-resulting pairs are correctly flagged. Results, live-queried/run for this
-write-up (post-fix numbers throughout):
+no live tarball on either side, Lucide Proxy via real payload fragments
+recovered from the campaign's own external infrastructure — and, as of
+2026-08-11, all nine resulting pairs are correctly flagged. Results,
+live-queried/run for this write-up (post-fix numbers throughout):
 
 | Incident | LLM layer | OSV feed (queried against the real malicious version) | Ever `MAL-*`? |
 |---|---|---|---|
 | node-ipc (reconstructed, `10.1.1`) | **Tested for real:** `network_calls=10.0`, `obfuscation=10.0`, free-text: *"confirmed, unambiguous malicious payload"*, base score 62.5, **HIGH** — carried entirely by the LLM layer | `GHSA-97m3-w2cp-4xx6` | No, never |
-| flatmap-stream (reconstructed, `0.1.1`) | **Tested for real:** `obfuscation=10.0`, `env_conditional=9.0`, free-text: *"a definitive, confirmed malicious supply chain attack"*, base score 38.5 (MEDIUM on its own), feed-adjusted **60.0, HIGH** | `GHSA-mh6f-8j2x-4483`, `GHSA-9x64-5r7x-2q53`, **`MAL-2025-20690`** | **Yes — flatmap-stream only, and only since 2025-08-14** |
+| flatmap-stream (reconstructed, `0.1.1`) | **Tested for real:** `obfuscation=10.0`, `env_conditional=9.0`, free-text: *"a definitive, confirmed malicious supply chain attack"*, base score 38.5 (MEDIUM on its own), feed-adjusted **60.0, HIGH** | `GHSA-mh6f-8j2x-4483`, `GHSA-9x64-5r7x-2q53`, **`MAL-2025-20690`** | **Yes — years late (see below)** |
 | ua-parser-js (reconstructed, `0.7.29`) | **Tested for real:** `network_calls=10.0`, `install_hooks=10.0`, `resource_exhaustion=10.0`, free-text names the incident by CVE, base score 72.0, feed-adjusted **67.0, HIGH** — the corpus's highest score, needed a diff-engine fix to reach its payload files at all | `GHSA-pjwm-rvh2-c87w` | No, never |
 | colors (reconstructed, `1.4.44-liberty-2`) | **Tested for real:** `resource_exhaustion=10.0` at confidence 1.0, every other dimension a correct 0.0, base score 20.0, feed-and-floor-adjusted **35.0, MEDIUM** — needed a new dimension *and* a floor rule to reach even this | `GHSA-5rqg-jm4f-cqx7`, `GHSA-gh88-3pxp-6fm8` | No, never |
 | node-ipc (registry-fetched, `11.0.0`) | **Tested for real:** `dependency_changes=9.0` at confidence 1.0, free-text names the incident, base score 19.5, floor-adjusted **30.0, MEDIUM** | `GHSA-3mpp-xfvh-qh37` | No, never |
 | ctx (reconstructed, `0.1.2-1`) | **Tested for real:** `network_calls=10.0`, `env_conditional=9.0`, free-text names the incident, base score **42.5, MEDIUM** — no floor rule, no feed modifier, original five dimensions plus one same-day diff-engine fix | `GHSA-4g82-3jcr-q52w`, `GHSA-67r3-h899-9w95`, `PYSEC-2022-199` | No, never |
 | ctx (reconstructed, `0.2.5`) | **Tested for real:** `network_calls=10.0`, `obfuscation=8.0`, free-text names the incident, base score **56.5, HIGH** — needed a diff-engine fix (`requirements.txt`/`maintainer_changed` parsing) to cross from MEDIUM, zero feed contribution either way | `GHSA-67r3-h899-9w95`, `PYSEC-2022-199` | No, never |
+| Lucide Proxy (reconstructed, cdn.js only) | **Tested for real:** `resource_exhaustion=8.0` at confidence 0.95 on a real, structurally different DoS shape, base score 44.5, feed-floored **55.0, HIGH** | `MAL-2026-10305` | **Yes — days, not years (see below)** |
+| Lucide Proxy (reconstructed, cdn.js+sw.js) | **Tested for real:** `resource_exhaustion=6.0` at confidence 0.9 (lower with more real code present — see `malicious/lucide-proxy/FINDINGS.md`), base score 37.0, feed-floored **55.0, HIGH** | `MAL-2026-10305` | **Yes — same fast hit** |
 
-**The finding that generalises across all seven pairs:** in every single
+**The finding that generalises across all nine pairs:** in every single
 case, the LLM layer's free-text summary correctly named the real incident
 — that was true before any 2026-08-10 fix and remains true after, and
 holds for `ctx` too, an incident the model's training and the fixes it
-motivated had no way to have been shaped by in tandem. What changed across
-the corpus is whether that recognition propagated into a flagged *severity
-bucket*, and the mechanism differed by case: node-ipc's reconstructed
-wiper needed nothing but complete input (LLM-carried). flatmap-stream
-needed a rare, years-late feed reclassification (feed-carried).
-ua-parser-js needed a diff-engine fix to see its own payload files
-(fetching/visibility-carried). colors and node-ipc's diluted pair needed
-new aggregation logic that didn't exist until this session (aggregator-
-carried). `ctx` needed neither a new dimension nor a new aggregator rule —
-its `0.1.2-1` pair reached MEDIUM on the original five dimensions alone —
-but its `0.2.5` pair still needed a diff-engine metadata fix
-(`requirements.txt`/`maintainer_changed` parsing, motivated by this exact
-incident) to cross from MEDIUM into HIGH, putting it closer to
-`ua-parser-js`'s "fetching/visibility-carried" category than to a clean
-zero-fix result. Five different mechanisms produced seven correct
-outcomes — which is a real result, but also means "chainwatch catches
-attacks" is really five much narrower, mechanism-specific claims stacked
-together,
+motivated had no way to have been shaped by in tandem. (`Lucide Proxy` is
+the one exception worth naming explicitly: the free text described the
+attack accurately without ever naming the campaign — plausibly because
+it's a far less famous incident than the rest of this corpus, with much
+less training-data exposure to draw on; see `malicious/lucide-proxy/
+FINDINGS.md` for the direct quote and a pointer to how this connects to
+the `coa`/`rc` narrative-leakage finding.) What changed across the corpus
+is whether that recognition propagated into a flagged *severity bucket*,
+and the mechanism differed by case: node-ipc's reconstructed wiper needed
+nothing but complete input (LLM-carried). flatmap-stream needed a rare,
+years-late feed reclassification (feed-carried, slow). ua-parser-js needed
+a diff-engine fix to see its own payload files (fetching/visibility-carried).
+colors and node-ipc's diluted pair needed new aggregation logic that
+didn't exist until this session (aggregator-carried). `ctx` needed neither
+a new dimension nor a new aggregator rule — its `0.1.2-1` pair reached
+MEDIUM on the original five dimensions alone — but its `0.2.5` pair still
+needed a diff-engine metadata fix (`requirements.txt`/`maintainer_changed`
+parsing, motivated by this exact incident) to cross from MEDIUM into HIGH,
+putting it closer to `ua-parser-js`'s "fetching/visibility-carried"
+category than to a clean zero-fix result. `Lucide Proxy` is a sixth,
+distinct case: real, independent LLM-layer signal on `resource_exhaustion`
+(unlike anything tried before, a positive result for that dimension
+specifically) that nonetheless doesn't determine the final bucket — a
+*fast* feed reclassification does that instead (feed-carried, fast, the
+mirror image of `flatmap-stream`'s slow case). Six different mechanisms
+produced nine correct outcomes — which is a real result, but also means
+"chainwatch catches attacks" is really six much narrower, mechanism-specific
+claims stacked together,
 exactly as many previous drafts of this document argued before any of
 them were true simultaneously.
 
 **On `MAL-*` classification specifically:** chainwatch's aggregator floors
 the score to the HIGH range when a feed reports `malicious` — which
 chainwatch maps from an OSV `MAL-*` prefix specifically (`analyzer/
-feeds.py`). Of five confirmed, publicly-documented supply-chain attacks,
-**only one has ever received a `MAL-*` classification, and that happened
-nearly seven years after disclosure** (2018-11-20 → 2025-08-14,
-live-verified against OSV's own `published` field for this write-up — an
-earlier draft of this document mis-stated this gap as "three and a half
-years"; corrected here). Even a chainwatch instance polling OSV in real
-time today would still get `suspicious`, not `malicious`, for four of
-these five incidents — the feed-floor rule's practical hit rate on this
-corpus's ground truth is 1-in-5, and even that one hit took most of a
-decade. node-ipc's reconstructed-wiper HIGH result was reached *without*
-the feed-floor rule ever firing — the LLM layer alone carried it.
-flatmap-stream's HIGH result is the opposite case: it's the one pair in
-this corpus where the feed-floor rule's rare, years-late hit actually
-mattered — run this same query before 2025-08-14 and the composite would
-have landed at 43.5 (MEDIUM, not HIGH, under the current post-fix weight
-matrix — worse than the 56.5-still-HIGH hypothetical an earlier draft of
-this document reported, because the weight cuts that made room for
-`resource_exhaustion` reduce `obfuscation`/`network_calls`'s ceiling too).
-colors, node-ipc's diluted pair, and both `ctx` pairs never touch `MAL-*`
-at all — three of those four are entirely a diff-engine-and-aggregator or
-pure-LLM story, with the feed layer contributing nothing either way.
+feeds.py`). Of six confirmed, publicly-documented supply-chain attacks,
+**two have ever received a `MAL-*` classification, on opposite ends of the
+speed spectrum.** `flatmap-stream`'s took nearly seven years after
+disclosure (2018-11-20 → 2025-08-14, live-verified against OSV's own
+`published` field for this write-up — an earlier draft of this document
+mis-stated this gap as "three and a half years"; corrected here).
+`Lucide Proxy`'s took **2 days 17 hours** (2026-07-10 → 2026-07-13,
+credited to `amazon-inspector` automated scanning and `ghsa-malware`,
+rather than a purely manual advisory process) — see `malicious/lucide-proxy/
+SOURCING.md` for the full timeline and why this incident's "malicious
+version published" timestamp is itself a looser concept than usual (the
+payload was loaded from a mutable, non-integrity-checked remote reference,
+not baked into the npm tarball). Even a chainwatch instance polling OSV in
+real time today would still get `suspicious`, not `malicious`, for four
+of these six incidents — the feed-floor rule's practical hit rate on this
+corpus's ground truth is 2-in-6, one fast and one slow, not enough to
+characterise a trend either way. node-ipc's reconstructed-wiper HIGH
+result was reached *without* the feed-floor rule ever firing — the LLM
+layer alone carried it. flatmap-stream's and `Lucide Proxy`'s HIGH results
+are the opposite case: the two pairs in this corpus where the feed-floor
+rule's hit actually determines the bucket — for flatmap-stream, run this
+same query before 2025-08-14 and the composite would have landed at 43.5
+(MEDIUM, not HIGH, under the current post-fix weight matrix — worse than
+the 56.5-still-HIGH hypothetical an earlier draft of this document
+reported, because the weight cuts that made room for `resource_exhaustion`
+reduce `obfuscation`/`network_calls`'s ceiling too); for `Lucide Proxy`,
+the feed rule was live from the start, so there's no meaningful
+"pre-advisory" hypothetical to construct. colors, node-ipc's diluted pair,
+and both `ctx` pairs never touch `MAL-*` at all — four of those six are
+entirely a diff-engine-and-aggregator or pure-LLM story, with the feed
+layer contributing nothing either way.
 
 ## RQ2 — detection gap
 
@@ -499,12 +602,25 @@ for this write-up, not estimated):
 | node-ipc (11.0.0, notice-only) | 2022-03-08 17:25:35 UTC | 2022-03-16 23:54:35 UTC | **8d 6h** | GHSA-3mpp-xfvh-qh37 |
 | node-ipc (9.2.2, notice-only) | 2022-03-15 05:40:26 UTC | 2022-03-16 23:54:33 UTC | **1d 18h** | GHSA-8gr3-2gjw-jj7g |
 | ctx | 2022-05-14 19:18:36 UTC | 2022-05-24 17:55:00 UTC | **9d 23h** | PYSEC-2022-199 |
+| Lucide Proxy | 2026-07-10 13:02:23 UTC *(npm publish — see caveat below)* | 2026-07-13 06:27:39 UTC | **2d 17h** | MAL-2026-10305 |
 
 Gaps range from under nine hours to eleven weeks, with no obvious trend by
 year (2022's colors incident closed in 2.5 days; 2021's ua-parser-js closed
 in under nine hours; 2018's event-stream took eleven weeks; 2022's ctx —
 despite a public researcher claiming responsibility within a day of
-discovery — still took ten days to reach a formal advisory). **A diff-level
+discovery — still took ten days to reach a formal advisory; 2026's Lucide
+Proxy closed in under three days, the second-fastest in this corpus).
+**Lucide Proxy's row needs a caveat the others don't**: its malicious
+capability was loaded at runtime from a mutable, non-integrity-checked
+remote reference (see `malicious/lucide-proxy/SOURCING.md`), not baked
+into the npm tarball at publish time — so "malicious version published"
+isn't quite the same well-defined event it is for every other row here.
+The 2d 17h figure uses the npm publish timestamp for consistency with the
+rest of this table, but the actual malicious capability may have gone
+live earlier or later than that timestamp; the closest thing to a firm
+"confirmed live" date is a 2026-05-18 Wayback capture of the payload, over
+seven weeks before either the npm publish timestamp used here or the
+advisory. **A diff-level
 LLM scanner's structural advantage is that it doesn't wait for any of this —
 it can score a release the moment it's published**, at the cost of the
 mechanism-specific severity-bucketing gaps documented above (all now
@@ -550,19 +666,22 @@ doesn't extend to attack shapes not already present in this corpus.
 OSV is the natural signature-based baseline here: it's a curated advisory
 database, the same category of tool as the classifiers this question asks
 chainwatch to be compared against, and it's already wired into every
-report. Scored against this corpus's five incidents:
+report. Scored against this corpus's six incidents:
 
-- **Eventual coverage: 5/5 (100%).** Every incident got at least one
+- **Eventual coverage: 6/6 (100%).** Every incident got at least one
   advisory, eventually.
-- **Confirmed-malware (`MAL-*`) coverage: 1/5 (20%), and slow.** Only
-  flatmap-stream has ever been reclassified from a generic GHSA advisory to
-  a `MAL-*` entry, nearly seven years after disclosure (see RQ1). `ctx` got
-  three separate advisories (`GHSA-4g82-3jcr-q52w`, `GHSA-67r3-h899-9w95`,
-  `PYSEC-2022-199`) and none of them ever `MAL-*` either.
-- **Speed: highly variable, 8 hours to 11 weeks** (see RQ2), with no
-  advisory ever available at the moment of attack publication. `ctx` adds a
-  data point in the middle of that range (9d 23h) rather than at either
-  extreme.
+- **Confirmed-malware (`MAL-*`) coverage: 2/6 (33%), one slow and one
+  fast.** `flatmap-stream` was reclassified from a generic GHSA advisory to
+  a `MAL-*` entry nearly seven years after disclosure (see RQ1). `Lucide
+  Proxy` got a `MAL-*` entry (`MAL-2026-10305`) within days — the first
+  time this corpus has seen the fast path. `ctx` got three separate
+  advisories (`GHSA-4g82-3jcr-q52w`, `GHSA-67r3-h899-9w95`,
+  `PYSEC-2022-199`) and none of them ever `MAL-*`.
+- **Speed: highly variable, 8 hours to 11 weeks, plus one outlier at under
+  3 days** (see RQ2), with no advisory ever available at the moment of
+  attack publication. `ctx` sits in the middle of the original range
+  (9d 23h); `Lucide Proxy` (2d 17h) is the second-fastest in the whole
+  corpus, behind only `ua-parser-js`'s 8h 23m.
 
 The comparison isn't "OSV vs. chainwatch" — chainwatch *uses* OSV as one of
 three feed inputs. The more useful framing, updated for the 2026-08-10
@@ -578,20 +697,30 @@ pair in 9 days (`GHSA-3mpp-xfvh-qh37`). Neither advisory has ever been
 `MAL-*`, so neither would trigger a hypothetical "block on signature match"
 gate at the confidence tier chainwatch's own `malicious_floor` rule
 requires — the signature approach's structural advantage (no taxonomy to
-be incomplete) is real, but its own confidence-tier problem (RQ1's 1-in-5
+be incomplete) is real, but its own confidence-tier problem (RQ1's 2-in-6
 `MAL-*` hit rate) means it wouldn't have closed these particular gaps
 either, just failed to have them in the first place. `ctx` sharpens this
 point rather than complicating it: it needed no chainwatch code fix of any
-kind (see "Why this incident matters more than its score" in
-`malicious/ctx/FINDINGS.md`), so for this one incident OSV's "just needed a
-human to write an advisory" path and chainwatch's "just needed the original
-five dimensions" path both worked without new engineering — they simply
-worked on different timescales (chainwatch: the moment of diffing; OSV:
-9d 23h later). Both approaches now agree on all seven malicious examples in
-this corpus (chainwatch: severity ≠ LOW; OSV: at least one advisory) — but
-four of chainwatch's seven correct results required two new code paths
-built this week, and OSV's agreement required nothing but time, on all
-seven.
+kind for its `0.1.2-1` pair (see "Why this incident matters more than its
+score" in `malicious/ctx/FINDINGS.md`), so for that one pair OSV's "just
+needed a human to write an advisory" path and chainwatch's "just needed
+the original five dimensions" path both worked without new engineering —
+they simply worked on different timescales (chainwatch: the moment of
+diffing; OSV: 9d 23h later). `Lucide Proxy` complicates this framing in a
+useful way: here it's OSV's *fast* automated path — not a human writing an
+advisory at all, but `amazon-inspector`'s scanning — that ends up
+determining chainwatch's own final bucket, since `resource_exhaustion`'s
+real 8.0 signal falls short of the floor rule's threshold on its own. The
+signature-based layer and the LLM layer aren't cleanly separable
+alternatives here; on this one incident, chainwatch's correct answer
+*is* the signature-based layer's answer, arriving through chainwatch's own
+`malicious_floor` feed integration. Both approaches now agree on all nine
+malicious examples in this corpus (chainwatch: severity ≠ LOW; OSV: at
+least one advisory) — but five of chainwatch's nine correct results
+required new code paths built this session (four via the 2026-08-10 fixes,
+one via the 2026-08-11 diff-engine fix that got `ctx`'s `0.2.5` pair to
+HIGH), and OSV's agreement required nothing chainwatch controls at all —
+sometimes years of nothing, sometimes days.
 
 ## Latency (observational, not a benchmark)
 
@@ -642,28 +771,34 @@ work, not attempted here.
    `malicious/node-ipc/FINDINGS.md`.
 4. **CI users relying on `--threshold` should not assume the MEDIUM
    boundary (30) is a safe default.** As of 2026-08-11, the default
-   threshold now catches all seven malicious examples in this corpus
+   threshold now catches all nine malicious examples in this corpus
    without any custom `--threshold` value — a meaningful change from
    before this session, when node-ipc's diluted pair (29.5) and colors's
    reconstructed attack (7.5) both required either a lower threshold or
    were uncatchable by threshold-tuning alone. `ctx`'s two pairs (42.5,
-   56.5) clear the boundary comfortably, adding two more data points that
-   didn't need the boundary itself to move. Whether this generalises past
-   this corpus's seven examples is exactly the open question in "The
-   overfitting caveat" above.
+   56.5) and `Lucide Proxy`'s two pairs (55.0 each) clear the boundary
+   comfortably, adding four more data points that didn't need the
+   boundary itself to move. Whether this generalises past this corpus's
+   nine examples is exactly the open question in "The overfitting caveat"
+   above.
 5. **The feed-floor rule's dependence on OSV's `MAL-*` prefix specifically
-   (not `GHSA-*`) means it will rarely fire in practice**, per RQ1/RQ4 — a
-   tool relying on chainwatch's `malicious_floor` modifier as its primary
-   safety net would have missed 4 of 5 incidents in this corpus even with
-   live feeds, for years in some cases, and does nothing at all for
-   ua-parser-js, colors/node-ipc's diluted pair, or either `ctx` pair
-   (never `MAL-*`, ever). Every one of this corpus's seven correct
-   classifications as of 2026-08-11 is carried by the LLM layer and/or the
-   new aggregator rules — not one depends on `malicious_floor` as the
-   deciding factor except flatmap-stream, and even there it's additive to
-   real LLM signal, not the sole source of it.
-6. **Reconstruction-and-run is done for all five incidents in this
-   corpus, via four different sourcing methods, and every resulting pair
+   (not `GHSA-*`) means it fires unpredictably** — sometimes not at all
+   for years, occasionally within days, per RQ1/RQ4. A tool relying on
+   chainwatch's `malicious_floor` modifier as its primary safety net would
+   have missed 4 of 6 incidents in this corpus even with live feeds, for
+   years in some cases, and does nothing at all for ua-parser-js,
+   colors/node-ipc's diluted pair, or either `ctx` pair (never `MAL-*`,
+   ever). But it's not purely slow either: `Lucide Proxy`'s `MAL-2026-10305`
+   landed in under three days, credited to automated scanning
+   (`amazon-inspector`) rather than a human-written advisory — and for that
+   incident specifically, `malicious_floor` *is* the deciding factor (see
+   recommendation #7 below), not merely additive. Two of this corpus's nine
+   correct classifications as of 2026-08-11 depend on `malicious_floor` as
+   the deciding factor (`flatmap-stream`, `Lucide Proxy`) — the rest are
+   carried by the LLM layer and/or the new aggregator rules regardless of
+   what OSV reports.
+6. **Reconstruction-and-run is done for all six incidents in this
+   corpus, via five different sourcing methods, and every resulting pair
    has now been rerun against the fully-fixed code for consistency.**
    node-ipc and colors were legitimate-maintainer self-sabotage with the
    payload surviving in git. event-stream/flatmap-stream was an account
@@ -672,46 +807,64 @@ work, not attempted here.
    hijack, but its pre-incident version is still published. ctx was also
    an account hijack, with neither side live but both independently
    recoverable from separate archives (Software Heritage for the benign
-   base, the Wayback Machine for the real uploaded malicious sdists). **This
-   corpus's currently-scoped incidents are now fully exhausted** — every
-   incident has had its real attack tested for real against both detection
-   layers, under the current code, with current numbers. See each
-   incident's `SOURCING.md`.
-7. **✅ Partially executed (2026-08-11).** The ground-truth corpus needed
-   real positives from incidents beyond the original four — `ctx` (PyPI,
-   2022) is that positive, the first one sourced and reconstructed after
-   `resource_exhaustion`/`_apply_dimension_floor` already existed. **What
-   it actually validates is narrower than what this recommendation asked
-   for**: `ctx`'s attack shape doesn't touch `resource_exhaustion` at all
-   (no DoS component) and never needs `_apply_dimension_floor` to fire
-   (the original five dimensions already clear MEDIUM unassisted) — so it
-   confirms the *rest* of the pipeline generalises to a genuinely new
-   attack shape (import-time credential exfiltration, no install hook),
-   but says nothing about whether the two newest, most corpus-specific
-   mechanisms do. **Still open, unchanged from before `ctx`:** a different
-   DoS shape (unbounded recursion instead of an infinite loop; a blocking
-   network call with no timeout instead of a `for` loop), a dimension
-   score that's genuinely borderline (7-8, not a clean 9-10) on a
-   genuinely malicious diff, or an attack that's single-vector but *not*
-   DoS-shaped landing near the floor rule's threshold by coincidence
-   (would a floor rule calibrated on `colors` even fire correctly there?).
-   The four sourcing methods identified here
-   ("maintainer-sabotage-with-git-history",
+   base, the Wayback Machine for the real uploaded malicious sdists).
+   `Lucide Proxy` is the first incident in this corpus that isn't an
+   account hijack at all — malicious from first publish, no legitimate
+   predecessor to recover — with no tarball recoverable on either side,
+   but real payload fragments independently recoverable from the
+   campaign's own external C2 infrastructure. **This corpus's
+   currently-scoped incidents are now fully exhausted** — every incident
+   has had its real attack tested for real against both detection layers,
+   under the current code, with current numbers. See each incident's
+   `SOURCING.md`.
+7. **✅ Partially executed (2026-08-11), then further advanced the same
+   day.** The ground-truth corpus needed real positives from incidents
+   beyond the original four, specifically ones that would exercise
+   `resource_exhaustion` or `_apply_dimension_floor`. Two incidents were
+   added, answering two different halves of the question:
+
+   - **`ctx` (PyPI, 2022)** was the first positive sourced and
+     reconstructed after both mechanisms already existed — but its attack
+     shape (import-time credential exfiltration) doesn't touch either one.
+     It confirms the *rest* of the pipeline generalises to a genuinely new
+     attack shape; it says nothing about the two mechanisms this
+     recommendation is actually about.
+   - **`Lucide Proxy` (npm, 2026)**, chosen specifically for a DoS shape
+     unlike `colors`'s (asynchronous unbounded polling vs. synchronous
+     blocking loop), **closes half of what `ctx` left open.**
+     `resource_exhaustion` scored it 8.0/10 at confidence 0.95, correctly
+     reasoning about "no termination condition, no stop mechanism, and no
+     rate limit" on an attack shape the dimension was never tuned against.
+     **`resource_exhaustion` is no longer validated only against
+     `colors`.** `_apply_dimension_floor` remains the open half: 8.0 falls
+     short of the rule's ≥9.0 trigger, so it still hasn't fired on
+     anything outside the two cases (`colors`, node-ipc's diluted registry
+     pair) that built it — and `Lucide Proxy`'s final HIGH classification
+     turns out to be entirely feed-determined (a fast `MAL-*` hit) rather
+     than floor-rule-determined, so this incident doesn't even indirectly
+     pressure-test the floor rule's necessity the way `colors` did.
+
+   **What's still open, narrower now than before:** find a ground-truth
+   positive where a dimension lands specifically in the 9-10/confidence
+   ≥0.9 band without being one of `colors`/node-ipc's diluted pair — a
+   single-vector attack (not necessarily DoS-shaped anymore, since that
+   half is answered) that happens to land there. The five sourcing methods
+   identified here ("maintainer-sabotage-with-git-history",
    "account-hijack-with-CDN-recoverable-payload-and-no-live-base",
    "account-hijack-with-a-live-pre-incident-base",
-   "account-hijack-with-neither-side-live-but-both-independently-archived")
+   "account-hijack-with-neither-side-live-but-both-independently-archived",
+   "malicious-from-inception-with-C2-fragments-independently-archived")
    cover every incident currently in scope; closing the remainder of this
-   recommendation requires a *sixth* incident, chosen specifically because
-   its attack shape would exercise `resource_exhaustion` or
-   `_apply_dimension_floor` — `ctx` was chosen for independence from the
-   fixes, not for stress-testing them, and it turned out to do the former
-   without the latter. **A follow-up attempt (also 2026-08-11) to source
-   exactly such a sixth incident — `coa`/`rc` (npm, 2021), picked
-   specifically to land `install_hooks` near the floor rule's trigger —
-   hit a real sourcing wall instead: the actual payload was never publicly
-   recovered by anyone (see `dataset/malicious/coa-rc/SOURCING.md`), and
-   two other candidates (a 2026 DDoS-botnet campaign, `torchtriton`) failed
-   for their own separate reasons. This recommendation is still open.**
+   recommendation requires a *seventh* incident chosen specifically for
+   that narrower target. **A follow-up attempt (also 2026-08-11) to source
+   such an incident — `coa`/`rc` (npm, 2021), picked specifically to land
+   `install_hooks` near the floor rule's trigger — hit a real sourcing wall
+   instead: the actual payload was never publicly recovered by anyone (see
+   `dataset/malicious/coa-rc/SOURCING.md`), and two other candidates (a
+   2026 DDoS-botnet campaign later ruled out on separate grounds,
+   `torchtriton`) failed for their own separate reasons before `Lucide
+   Proxy` was found. This recommendation is more than half-closed, but
+   still open.**
 8. **✅ Tested (2026-08-11). Narrative leakage: description measurably
    substitutes for code in the LLM layer's scoring.** The `coa`/`rc`
    attempt above used explicitly-labeled placeholder files (no fabricated
@@ -832,30 +985,32 @@ attach to.
 
 As of 2026-08-10, `models.DIMENSIONS` has six entries, not five (see
 `src/chainwatch/models.py` for the exact weights and the rationale
-comment). All seven malicious-labelled reports **are** current,
+comment). All nine malicious-labelled reports **are** current,
 six-dimension outputs — the original five were rerun and reconfirmed
-against the fixed code, and `ctx`'s two were run directly against it (no
-five-dimension version of either ever existed, since `ctx` was
-reconstructed after that particular fix landed). `ctx`'s two reports were
-separately rerun again the following day (2026-08-11) against the two
-diff-engine metadata fixes described in recommendation #10 — that
-before/after *does* exist, at `malicious/ctx/pre-pypi-fix-report-*.json`,
-and is unrelated to the dimension-count question this paragraph is about.
-The nine benign-labelled reports (listed in "Corpus overview" above) were
-**not** rerun — they were never candidates for reclassification, since
-neither fix could plausibly move an already-LOW report *upward* by design.
-Instead, RQ3's explicit false-positive check validates the *current* code
-directly (a live `resource_exhaustion` rerun on lodash; a corpus-wide sweep
-for the floor-rule trigger condition) without needing to regenerate every
-benign report from scratch.
+against the fixed code, and `ctx`'s and `Lucide Proxy`'s four (combined)
+were run directly against it (no five-dimension version of any of them
+ever existed, since both were reconstructed after that particular fix
+landed). `ctx`'s two reports were separately rerun again the following day
+(2026-08-11) against the two diff-engine metadata fixes described in
+recommendation #10 — that before/after *does* exist, at `malicious/ctx/
+pre-pypi-fix-report-*.json`, and is unrelated to the dimension-count
+question this paragraph is about. The nine benign-labelled reports (listed
+in "Corpus overview" above) were **not** rerun — they were never
+candidates for reclassification, since neither fix could plausibly move an
+already-LOW report *upward* by design. Instead, RQ3's explicit
+false-positive check validates the *current* code directly (a live
+`resource_exhaustion` rerun on lodash; a corpus-wide sweep for the
+floor-rule trigger condition) without needing to regenerate every benign
+report from scratch.
 
-**Six of the sixteen reports are not reproducible via a single
+**Eight of the eighteen reports are not reproducible via a single
 `chainwatch diff` invocation** — the first four below (there's no real
 *malicious-version* tarball to fetch for any of them) plus `ctx`'s two
-pairs (no live tarball on *either* side). A seventh bullet is listed
-alongside them — node-ipc's registry pair — not because it's
-unreproducible (it's a plain, real fetch), but because its
-*classification*, not its reproducibility, depends on a same-session fix:
+pairs and `Lucide Proxy`'s two pairs (no live tarball on *either* side for
+either incident). A ninth bullet is listed alongside them — node-ipc's
+registry pair — not because it's unreproducible (it's a plain, real
+fetch), but because its *classification*, not its reproducibility,
+depends on a same-session fix:
 
 - `node-ipc/report-10.1.0-to-10.1.1-RECONSTRUCTED.json` — apply
   `malicious/node-ipc/evidence/commit-847047cf7f81-relevant.diff` to a real,
@@ -906,13 +1061,25 @@ unreproducible (it's a plain, real fetch), but because its
   `requirements.txt`/`maintainer_changed` parsing landed, recommendation
   #10) are preserved at `pre-pypi-fix-report-0.1.2-to-0.1.2-1-RECONSTRUCTED.json`
   and its `0.2.5` counterpart, not part of any corpus count.
+- `lucide-proxy/report-lucide-proxy-cdn-only-RECONSTRUCTED.json` and
+  `lucide-proxy/report-lucide-proxy-cdn-and-sw-RECONSTRUCTED.json` — **no
+  live or archived tarball on either side, for any of this campaign's 148
+  packages.** Reproduce the "to" side's real payload fragments by fetching
+  `https://web.archive.org/web/20260518174009/https://raw.githubusercontent.com/canyoupleasesaysomething/cdn/refs/heads/main/cdn.js`
+  and (for the second pair)
+  `https://web.archive.org/web/20260426172256/https://raw.githubusercontent.com/lucideproxy/svg/refs/heads/main/sw.js`.
+  The "from" side and the rest of the "to" side's `package.json` are an
+  explicitly-synthetic scaffold (real package name/version strings, not a
+  real recovered tarball — see `malicious/lucide-proxy/evidence/README.md`
+  for exactly what's real and what's scaffold, and why).
 
 The first four are then reproducible by calling
 `chainwatch.diff.engine.compute_diff()` directly on the two resulting
 directories (bypassing the registry-fetch layer entirely, not mocking it);
-`ctx`'s two pairs use the same `compute_diff()` call once their directories
-are assembled from archives rather than a diff/patch step — see each
-incident's `SOURCING.md` for the full method and why it was built this way.
-Feed lookups (OSV/Rekor/Scorecard) still hit the real APIs in all seven
-cases; only the malicious-version tarball fetch is bypassed (and, for the
+`ctx`'s and `Lucide Proxy`'s pairs use the same `compute_diff()` call once
+their directories are assembled from archives (and, for `Lucide Proxy`, a
+synthetic scaffold) rather than a diff/patch step — see each incident's
+`SOURCING.md` for the full method and why it was built this way. Feed
+lookups (OSV/Rekor/Scorecard) still hit the real APIs in all nine cases;
+only the malicious-version tarball fetch is bypassed (and, for the
 node-ipc registry pair, nothing is bypassed at all).

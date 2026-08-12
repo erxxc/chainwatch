@@ -19,6 +19,7 @@ dataset/
 │   ├── colors/                  # same layout
 │   ├── node-ipc/                # same layout — the one registry-diffable real attack
 │   ├── ctx/                     # same layout — no live tarball on either side; PyPI, not npm
+│   ├── lucide-proxy/             # same layout — no tarball either side; real payload fragments, synthetic scaffold
 │   └── coa-rc/                  # NOT a canonical entry — placeholder reconstruction, see its SOURCING.md
 ├── benign/              # false-positive baseline (ground truth: benign)
 │   ├── SOURCING.md               # selection methodology for all 4 pairs
@@ -96,51 +97,63 @@ records *when* a run happened without preserving minute-level local timing.
 | colors | 1.3.3→1.4.0 (control) + 1.4.0→1.4.44-liberty-2 (reconstructed) | Maintainer protest-ware, infinite loop (2022) | No via the registry pipeline — sabotage never republished (`1.4.0` is still `latest`). The actual sabotage commit was reconstructed from verified git history and run directly through the pipeline — first scored 7.5/LOW despite being the complete attack, then **35.0/MEDIUM** after two code fixes (see below). See `colors/FINDINGS.md`. |
 | node-ipc | 10.1.0→11.0.0 (registry) + 10.1.0→10.1.1 (reconstructed) | Maintainer protest-ware, destructive wiper (2022) | **Yes, both ways.** The compromised `peacenotwar` dependency is still present in `11.0.0` (registry-diffable today) — originally scored 29.5/LOW, now **30.0/MEDIUM** after the same code fixes that resolved `colors`. The actual destructive wiper (`10.1.1`, unpublished) was reconstructed from its exact verified git commit and run directly through the pipeline — **62.5/HIGH** (originally 69.0; rerun under the current weight matrix). See `node-ipc/FINDINGS.md`. |
 | ctx | 0.1.2→0.1.2-1 (reconstructed) + 0.1.2→0.2.5 (reconstructed) | PyPI account takeover, environment-variable exfiltration (2022) | No via any live fetch — the entire PyPI project was deleted, not just the malicious versions (`GET .../pypi/ctx/json` → 404). Both sides reconstructed from independent archives (Software Heritage for the real 2014 original, the Wayback Machine for both real uploaded malicious sdists) and run directly through the pipeline — **42.5/MEDIUM** (first, simplest malicious release) and **56.5/HIGH** (final, complete release, crossed from MEDIUM after this incident's own reconstruction motivated a same-day diff-engine fix), both entirely LLM-driven with zero feed-modifier contribution. See `ctx/FINDINGS.md`. |
+| Lucide Proxy (`ilovefemboys`) | 1.1.3→2.0.0, cdn.js only (reconstructed) + 1.1.3→2.0.0, cdn.js+sw.js (reconstructed) | npm browser-recruited DDoS botnet, malicious-from-inception (2026) | No via any live fetch — none of this campaign's 148 packages have a live or archived tarball on either side. Real payload fragments (not narration) recovered independently from the campaign's own external C2 repositories via the Wayback Machine, layered onto an explicitly-synthetic package scaffold — **55.0/HIGH** on both pairs. Chosen specifically to test `resource_exhaustion` on a DoS shape unlike `colors`'s: it scored 8.0–6.0/10 on a real, unbounded *asynchronous* polling loop, the dimension's first out-of-corpus validation — but the final score is entirely floor-imposed by a fast, real OSV `MAL-*` hit, not by that dimension or `_apply_dimension_floor` (which still didn't fire). See `lucide-proxy/FINDINGS.md`. |
 
 A recurring finding (see the per-package `FINDINGS.md`): for most of the
 highest-profile npm/PyPI incidents the malicious release has been
 unpublished from the registry, so registry-level diffing only validates
 *non*-false-positive behaviour on the benign neighbours rather than direct
-detection. All five incidents in this corpus are now exceptions: each has
-had its complete attack reconstructed and run for real — node-ipc and
-colors from verified git history, event-stream/flatmap-stream from
-CDN-archaeology evidence (that incident was an account hijack, never
-pushed to git, with no live base tarball either), ua-parser-js from a
-real, still-published pre-incident base tarball with
-vendor-writeup-recovered payload scripts spliced on, and ctx from two
-independent archives with no live tarball on either side.
+detection. All six incidents in this corpus are now exceptions: each has
+had its complete (or, for `Lucide Proxy`, partial but real) attack
+reconstructed and run for real — node-ipc and colors from verified git
+history, event-stream/flatmap-stream from CDN-archaeology evidence (that
+incident was an account hijack, never pushed to git, with no live base
+tarball either), ua-parser-js from a real, still-published pre-incident
+base tarball with vendor-writeup-recovered payload scripts spliced on, ctx
+from two independent archives with no live tarball on either side, and
+Lucide Proxy from real payload fragments recovered from the campaign's own
+external infrastructure onto a synthetic scaffold (no legitimate
+predecessor exists to reconstruct against — these packages were malicious
+from first publish).
 
-**As of 2026-08-11, all seven resulting malicious-labelled pairs score
+**As of 2026-08-11, all nine resulting malicious-labelled pairs score
 above LOW** — 0% false positives, 100% recall on this specific corpus —
-but they got there by five structurally different mechanisms, which
+but they got there by six structurally different mechanisms, which
 matters more than the headline number (see the caveat immediately below).
 node-ipc's reconstructed wiper is a fetching-completeness story with a
 happy ending: LOW when diluted, HIGH when complete, carried entirely by
-the LLM layer. flatmap-stream reaches HIGH too, but leans partly on a rare
-OSV `malicious_floor` hit. ua-parser-js needed a diff-engine code fix
-(`SOURCE_EXTENSIONS` didn't recognise `.sh`/`.bat`, so the actual payload
-files were invisible to the LLM) to go from MEDIUM to HIGH. colors and
-node-ipc's diluted pair both needed two *further* code changes — a sixth
-risk dimension (`resource_exhaustion`) plus a new aggregator rule
+the LLM layer. flatmap-stream reaches HIGH too, but leans partly on a rare,
+years-late OSV `malicious_floor` hit. ua-parser-js needed a diff-engine
+code fix (`SOURCE_EXTENSIONS` didn't recognise `.sh`/`.bat`, so the actual
+payload files were invisible to the LLM) to go from MEDIUM to HIGH. colors
+and node-ipc's diluted pair both needed two *further* code changes — a
+sixth risk dimension (`resource_exhaustion`) plus a new aggregator rule
 (`definitive_dimension_floor`, floors the score to MEDIUM when any one
 dimension is both near-maximal and near-certain) — to move from LOW to
 MEDIUM. ctx needed neither of *those* two mechanisms — both its pairs
 classify correctly using only the original five dimensions, with no feed
 contribution at all — but its more complete pair still needed a same-day
 diff-engine metadata fix (`requirements.txt`/`maintainer_changed`
-parsing, motivated by this exact incident) to cross from MEDIUM into
-HIGH. The corpus's first genuinely independent check on whether detection
-generalises past the incidents that shaped it, and the only fix this
-session validated against the exact incident that surfaced it rather than
-a different one.
+parsing, motivated by this exact incident) to cross from MEDIUM into HIGH.
+Lucide Proxy is a sixth, distinct mechanism: `resource_exhaustion` gave a
+real, independent, out-of-corpus positive signal for the first time (8.0
+and 6.0/10 on a genuinely different DoS shape) — but the final HIGH
+bucket is decided by a *fast* OSV `MAL-*` hit, not by that dimension or
+`_apply_dimension_floor`, making it the mirror image of `flatmap-stream`'s
+slow feed-carried case. ctx is the corpus's first genuinely independent
+check on whether detection generalises past the incidents that shaped it,
+and the only fix in this corpus validated against the exact incident that
+surfaced it rather than a different one; Lucide Proxy is the first
+incident chosen specifically to stress-test `resource_exhaustion` from
+outside the corpus that built it, and it passed.
 
 **Read `findings/README.md`'s "overfitting caveat" before citing 100%
-recall as a general result.** ctx is a real, independently-sourced
-positive, but its attack shape doesn't happen to exercise either of the
-two mechanisms built this week (`resource_exhaustion`,
-`_apply_dimension_floor`) — those two were designed by directly observing
-this corpus's own failures and, as of this update, are still validated
-only against the four incidents that produced them. That's real
+recall as a general result.** ctx and Lucide Proxy are both real,
+independently-sourced positives, but between them they only close half of
+what recommendation #7 asked for: `resource_exhaustion` now has genuine
+out-of-corpus support, while `_apply_dimension_floor` — designed by
+directly observing this corpus's own failures — remains validated only
+against the two incidents that produced it. That's real
 validation, but it isn't independent validation for those two mechanisms
 specifically — see recommendation #7's (partial) resolution there.
 
@@ -161,60 +174,66 @@ per-pair analysis. Zero severity-level false positives across all four.
 ## Cross-corpus findings
 
 The precision/recall table, detection-gap analysis, and full RQ1–4 synthesis
-across all sixteen reports live in [`dataset/findings/README.md`](findings/README.md).
+across all eighteen reports live in [`dataset/findings/README.md`](findings/README.md).
 **Headline result, as of 2026-08-11: 0% false positives across nine benign
-pairs, 100% precision / 100% recall across seven positive pairs** — every
+pairs, 100% precision / 100% recall across nine positive pairs** — every
 malicious-labelled pair in this corpus now scores above LOW. Read that
 document's "overfitting caveat" before citing the recall number on its
 own: two of the fixes that closed four of the corpus's incidents (a sixth
 risk dimension for denial-of-service patterns, plus an aggregator rule that
 floors the score when one dimension is near-certain and near-maximal) were
-designed by observing those incidents' failures and are still validated
-only against them. The fifth incident, `ctx` (PyPI, added 2026-08-11), is
-the corpus's first genuinely independent check — sourced and reconstructed
-after both fixes existed — and it classifies correctly using neither of
-them, which is reassuring about the rest of the pipeline but doesn't
-actually test the two newest mechanisms (its attack shape never engages
-either one). The seven positive examples split into five different
-*mechanisms* of detection — LLM-carried, feed-carried,
-diff-engine-fix-carried, aggregator-fix-carried, and (ctx) unmodified-
-five-dimension-carried — which is the more durable finding than the single
-recall number. See that document before citing any of these numbers in
-isolation.
+designed by observing those incidents' failures and, for the aggregator
+rule, remain validated only against them. The dimension itself no longer
+is: `ctx` (PyPI) and `Lucide Proxy` (npm), both added 2026-08-11 after
+both fixes already existed, are the corpus's first genuinely independent
+checks. `ctx` classifies correctly using neither mechanism — reassuring
+about the rest of the pipeline, but its attack shape never engages either
+one. `Lucide Proxy`, chosen specifically for a DoS shape unlike the one
+`resource_exhaustion` was built from, gives that dimension real
+out-of-corpus support (8.0/10 on a genuinely different, unbounded
+asynchronous pattern) — but its final HIGH classification turns out to be
+feed-determined, not floor-rule-determined, so `_apply_dimension_floor`
+remains untested outside the two incidents that built it. The nine
+positive examples split into six different *mechanisms* of detection —
+LLM-carried, feed-carried (slow and fast), diff-engine-fix-carried,
+aggregator-fix-carried, unmodified-five-dimension-carried (`ctx`), and
+`resource_exhaustion`-carried-but-feed-decided (`Lucide Proxy`) — which is
+the more durable finding than the single recall number. See that document
+before citing any of these numbers in isolation.
 
 ## Still pending
 
-Reconstruction-and-run is now done for all five incidents in this corpus —
+Reconstruction-and-run is now done for all six incidents in this corpus —
 there's no remaining "not yet run" case — and every resulting pair has been
 rerun against the fully-fixed code, twice in some cases, for corpus-wide
 consistency. Three real code fixes shipped 2026-08-10:
 `chainwatch.diff.engine.SOURCE_EXTENSIONS` now recognises
 `.sh`/`.bat`/`.ps1`/`.cmd`; `models.DIMENSIONS` gained a sixth entry,
 `resource_exhaustion`; and `analyzer/aggregator.py` gained
-`_apply_dimension_floor`. `ctx` (2026-08-11) is the first step on
-`findings/README.md`'s recommendation #7 — a real, independently-sourced
-positive — but it's a partial answer, not a full one: its attack shape
-doesn't happen to exercise either of the two mechanisms above, so whether
-`resource_exhaustion` and `_apply_dimension_floor` actually generalise past
-the four incidents that shaped them is **still open**. `ctx`'s own
-reconstruction surfaced two further diff-engine gaps on the PyPI side
-(`requirements.txt` wasn't parsed for dependencies; `maintainer_changed`
-detection was npm-only), plus a documentation gap (`env_conditional`'s
-stated definition undersold what it actually, correctly, scored) — all
-three fixed the same session (`findings/README.md` recommendations #9 and
-#10), the first two reconfirmed on a rerun against `ctx` itself, which is
-what moved its `0.2.5` pair from MEDIUM to HIGH. A follow-up attempt at
-exactly the sixth incident recommendation #7
-still calls for — `coa`/`rc` (npm, 2021), picked to land `install_hooks`
-near the floor rule's trigger — hit a real sourcing wall instead: the
-actual payload was never publicly recovered by anyone, in any form more
-concrete than prose description (see `malicious/coa-rc/SOURCING.md`). The
-resulting placeholder-file experiment is **not** a corpus entry (filenamed
-`inconclusive-*`, excluded from every count in this document), but a
-controlled follow-up turned it into a second, genuinely useful, quantified
-finding: stripping the placeholder comments down to genuinely empty stub
-files dropped both pairs from HIGH to MEDIUM (20–28.5 points) — direct
-evidence that descriptive prose embedded in a diff drives a measurable
-part of the score, independent of any real payload — see
-`findings/README.md` recommendation #8. Recommendation #7 itself remains
-open.
+`_apply_dimension_floor`. `ctx` and `Lucide Proxy` (both 2026-08-11) are
+the two steps taken so far on `findings/README.md`'s recommendation #7 —
+together they answer half of it. `resource_exhaustion` now has real,
+independent, out-of-corpus support (`Lucide Proxy`'s 8.0/10 on a DoS shape
+unlike `colors`'s); `_apply_dimension_floor` still doesn't — every firing
+of that rule anywhere in this corpus remains one of the two incidents that
+built it, and this **remains open**. `ctx`'s own reconstruction separately
+surfaced two further diff-engine gaps on the PyPI side (`requirements.txt`
+wasn't parsed for dependencies; `maintainer_changed` detection was
+npm-only), plus a documentation gap (`env_conditional`'s stated definition
+undersold what it actually, correctly, scored) — all three fixed the same
+session (`findings/README.md` recommendations #9 and #10), the first two
+reconfirmed on a rerun against `ctx` itself, which is what moved its
+`0.2.5` pair from MEDIUM to HIGH. A follow-up attempt at the narrower
+target recommendation #7 still calls for — `coa`/`rc` (npm, 2021), picked
+to land `install_hooks` near the floor rule's trigger — hit a real
+sourcing wall instead: the actual payload was never publicly recovered by
+anyone, in any form more concrete than prose description (see
+`malicious/coa-rc/SOURCING.md`). The resulting placeholder-file experiment
+is **not** a corpus entry (filenamed `inconclusive-*`, excluded from every
+count in this document), but a controlled follow-up turned it into a
+second, genuinely useful, quantified finding: stripping the placeholder
+comments down to genuinely empty stub files dropped both pairs from HIGH
+to MEDIUM (20–28.5 points) — direct evidence that descriptive prose
+embedded in a diff drives a measurable part of the score, independent of
+any real payload — see `findings/README.md` recommendation #8.
+Recommendation #7 itself is more than half-closed, but remains open.
