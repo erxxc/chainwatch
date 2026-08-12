@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: "If you use this software or its accompanying ground-truth corpus, please cite it as below."
+title: chainwatch
+version: 0.1.0
+date-released: "2026-08-12"
+abstract: >-
+  LLM-assisted supply chain diff analyzer for detecting malicious npm/PyPI
+  package updates. Combines semantic diff analysis (Claude) with threat
+  intelligence feeds (OSV, Rekor/Sigstore, OpenSSF Scorecard, and a
+  new-dependency provenance heuristic) and a ground-truth corpus of real,
+  independently-sourced-and-verified malicious package incidents.
+type: software
+authors:
+  - alias: erxxc
+repository-code: "https://github.com/erxxc/chainwatch"
+url: "https://github.com/erxxc/chainwatch"
+license: MIT
+keywords:
+  - security
+  - supply-chain
+  - npm
+  - pypi
+  - llm
+  - static-analysis
