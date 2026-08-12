@@ -159,7 +159,17 @@ async def analyze_diff(
 
     For multi-chunk diffs, we send each chunk separately and aggregate the
     scores by taking the maximum per dimension (conservative: if any chunk
-    shows a risk pattern, it counts).
+    shows a risk pattern, it counts). Chunks are sent with bounded
+    concurrency (``settings.max_concurrent_llm_chunks``, default 4) rather
+    than one at a time — a large diff's chunk count previously set the
+    entire call's latency directly (observed: a 10-chunk diff took ~2.5
+    minutes end-to-end, see dataset/findings/README.md's "Latency"
+    section), since each chunk waited on the previous one's full round
+    trip for no reason — chunks are independent requests, nothing in one
+    chunk's analysis depends on another's result. The cap keeps this from
+    bursting past Anthropic API rate limits the way *unbounded*
+    concurrency would; ``_call_with_retry``'s exponential backoff absorbs
+    whatever the cap doesn't prevent.
 
     Args:
         diff_summary:  The structured diff summary (for metadata context)
@@ -190,23 +200,32 @@ async def analyze_diff(
 
     # Real implementation
     client = anthropic.AsyncAnthropic(api_key=api_key)
+    semaphore = asyncio.Semaphore(settings.max_concurrent_llm_chunks)
 
-    all_chunk_results: list[list[dict[str, Any]]] = []
-    last_summary = ""
+    async def _analyze_chunk(index: int, chunk: str) -> dict[str, Any]:
+        async with semaphore:
+            log.debug("Sending chunk %d/%d to LLM", index + 1, len(diff_chunks))
+            user_prompt = USER_PROMPT_TEMPLATE.format(
+                ecosystem=ecosystem.value,
+                package=package,
+                from_version=from_version,
+                to_version=to_version,
+                diff_content=chunk,
+            )
+            raw = await _call_with_retry(client, user_prompt, settings)
+            return _parse_llm_response(raw)
 
-    for i, chunk in enumerate(diff_chunks):
-        log.debug("Sending chunk %d/%d to LLM", i + 1, len(diff_chunks))
-        user_prompt = USER_PROMPT_TEMPLATE.format(
-            ecosystem=ecosystem.value,
-            package=package,
-            from_version=from_version,
-            to_version=to_version,
-            diff_content=chunk,
-        )
-        raw = await _call_with_retry(client, user_prompt, settings)
-        parsed = _parse_llm_response(raw)
-        all_chunk_results.append(parsed["dimensions"])
-        last_summary = parsed.get("summary", "")
+    # asyncio.gather preserves input order in its result list regardless of
+    # completion order, so parsed_results[-1] is deterministically "the last
+    # chunk in the diff's own order" — the same chunk that would have set
+    # last_summary last in the old sequential for-loop — not whichever
+    # request happened to finish last.
+    parsed_results = await asyncio.gather(
+        *(_analyze_chunk(i, chunk) for i, chunk in enumerate(diff_chunks))
+    )
+
+    all_chunk_results = [parsed["dimensions"] for parsed in parsed_results]
+    last_summary = parsed_results[-1].get("summary", "") if parsed_results else ""
 
     aggregated = _aggregate_chunk_scores(all_chunk_results)
     dimensions = _build_dimensions(aggregated)

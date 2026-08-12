@@ -729,10 +729,24 @@ duration — but worth noting qualitatively from directly-observed runs this
 session: single-chunk diffs (most benign pairs, most malicious-corpus
 control pairs) completed in roughly 10–20 seconds end-to-end (fetch + diff +
 LLM + feeds). The `requests` pair — 10 chunks after chunking a ~5,900-line
-diff — took roughly 2.5 minutes, scaling with chunk count since chunks are
-sent to the LLM sequentially per `analyzer/llm.py`. A proper latency study
-(controlled runs, repeated trials, network variance isolated) is future
-work, not attempted here.
+diff — took roughly 2.5 minutes at the time this was measured, because
+every chunk was sent to the LLM strictly sequentially, one full round trip
+at a time.
+
+**That specific bottleneck no longer describes the current code.**
+`analyze_diff()` (`analyzer/llm.py`) now sends chunks with bounded
+concurrency (`settings.max_concurrent_llm_chunks`, default 4) rather than
+one at a time, and `scan_dependencies()` (`scanner.py`) does the same
+across dependencies (`settings.max_concurrent_scan_deps`, default 3) — a
+CI scan of a full lockfile no longer waits on every dependency's entire
+pipeline in turn. Both caps are deliberately bounded, not unlimited, for
+the same reason the original sequential design cited: firing everything
+at once risks tripping Anthropic API rate limits with no visible warning.
+The `requests`-pair figure above is now a historical data point about the
+pre-parallelisation implementation, not a current characterisation of
+`analyzer/llm.py`'s latency — a proper controlled re-measurement (repeated
+trials, network variance isolated) is still future work, more so now that
+there's a real "before" number to compare a re-measured "after" against.
 
 ## Recommendations arising from this data
 

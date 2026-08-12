@@ -86,6 +86,33 @@ class Settings(BaseSettings):
         description="Max retry attempts on rate-limited or transient API failures.",
     )
 
+    max_concurrent_llm_chunks: int = Field(
+        default=4,
+        ge=1,
+        le=20,
+        description=(
+            "Max diff chunks analysed concurrently per package within a single "
+            "analyze_diff() call. Bounded (not unlimited) so a large diff's "
+            "chunk fan-out doesn't burst past Anthropic API rate limits; "
+            "_call_with_retry()'s exponential backoff absorbs whatever the cap "
+            "doesn't prevent. Set to 1 to fully serialise, matching the old "
+            "sequential behaviour."
+        ),
+    )
+
+    max_concurrent_scan_deps: int = Field(
+        default=3,
+        ge=1,
+        le=20,
+        description=(
+            "Max lockfile dependencies diffed concurrently during `chainwatch "
+            "scan`. Each unit of concurrency here is a full diff pipeline run "
+            "(registry fetch + diff + LLM + feeds), heavier than one LLM "
+            "chunk call, hence the more conservative default than "
+            "max_concurrent_llm_chunks. Set to 1 to fully serialise."
+        ),
+    )
+
     max_download_bytes: int = Field(
         default=100 * 1024 * 1024,
         ge=1 * 1024 * 1024,
