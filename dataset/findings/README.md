@@ -863,8 +863,22 @@ work, not attempted here.
    `dataset/malicious/coa-rc/SOURCING.md`), and two other candidates (a
    2026 DDoS-botnet campaign later ruled out on separate grounds,
    `torchtriton`) failed for their own separate reasons before `Lucide
-   Proxy` was found. This recommendation is more than half-closed, but
-   still open.**
+   Proxy` was found.** A second follow-up round (2026-08-12) checked five
+   more candidates specifically for the install_hooks-dominant,
+   single-vector shape this recommendation still needs: PhantomRaven (126
+   npm packages, remote-dependency technique — the C2 domain was never
+   crawled by any archive checked), `coinbase-wallet-utils`/`ethers-jss`
+   (real `MAL-*` hits, but no tarball archived on either), the `axios`
+   compromise's `plain-crypto-js` dependency (only npm's post-takedown
+   security placeholder was ever archived), and `@acitons/artifact`
+   (ruled out outright — GitHub confirmed this was an authorized internal
+   red-team exercise, not a real attack, so it doesn't belong in a
+   ground-truth-malicious corpus regardless of recoverability). None
+   panned out. **This recommendation is more than half-closed, but still
+   open — the remaining gap (a real, recoverable, single-vector attack
+   landing one dimension at 9-10/confidence ≥0.9 without being one of the
+   two cases the floor rule was built from) has now survived two dedicated
+   search rounds.**
 8. **✅ Tested (2026-08-11). Narrative leakage: description measurably
    substitutes for code in the LLM layer's scoring.** The `coa`/`rc`
    attempt above used explicitly-labeled placeholder files (no fabricated
