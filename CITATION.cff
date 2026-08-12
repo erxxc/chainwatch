@@ -12,6 +12,13 @@ abstract: >-
 type: software
 authors:
   - name: erxxc
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.21908506
+    description: "The version-specific DOI for v0.1.0, as archived on Zenodo."
+  - type: doi
+    value: 10.5281/zenodo.21908505
+    description: "The concept DOI, which always resolves to the latest version."
 repository-code: "https://github.com/erxxc/chainwatch"
 url: "https://github.com/erxxc/chainwatch"
 license: MIT
