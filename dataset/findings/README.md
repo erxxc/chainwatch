@@ -733,19 +733,39 @@ work, not attempted here.
    about an unexplained install hook, the model's background knowledge of
    this specific famous incident, or some mix of both. See
    `dataset/malicious/coa-rc/FINDINGS.md` for the full breakdown.
-9. **`env_conditional`'s LLM-observed behavior is broader than its stated
-   definition.** `models.py` describes it as "conditional logic gated on
-   env vars, platform, or CI detection" (control flow that *branches* on
-   environment state), but `ctx`'s attack — which reads and exfiltrates
-   environment variables without branching on them at all — still scores
-   8-9/10 on this dimension, with the model's own reasoning making clear
-   it's rewarding "touches environment variables in a security-relevant
-   way" more broadly. This happened to be the second-largest contributor to
-   both `ctx` scores, so nothing here is a false positive, but it's a real
-   definition/behavior gap worth resolving deliberately (split into two
-   dimensions, or widen the stated definition to match observed behavior)
-   rather than leaving implicit. See `malicious/ctx/FINDINGS.md`
-   observation 2.
+9. **✅ Implemented (2026-08-11). `env_conditional`'s stated definition
+   widened to match its already-correct observed behavior; not split into
+   two dimensions.** `models.py` previously described it as "conditional
+   logic gated on env vars, platform, or CI detection" (control flow that
+   *branches* on environment state), but `ctx`'s attack — which reads and
+   exfiltrates environment variables without branching on them at all —
+   scored 8-9/10 on this dimension anyway, with the model's own reasoning
+   making clear it was rewarding "touches environment variables in a
+   security-relevant way" more broadly than the docstring described. The
+   label (`models.py`) and system prompt (`analyzer/llm.py`) now describe
+   both patterns explicitly — control-flow branching *and*
+   read/exfiltration — as the same dimension, rather than leaving the
+   broader half implicit. **A split into two dimensions was considered and
+   rejected**: the corpus's one benign control with real, non-malicious
+   env-var-reading code (`requests`, `os.environ.get('NETRC')`/
+   `CURL_CA_BUNDLE`) already scored this dimension a correct, low 1.5/10
+   *before* the change, meaning the model was already discriminating
+   "legitimate configuration read" from "credential harvesting" correctly
+   within the single dimension — splitting would add a weight-rebalancing
+   exercise and a corpus-wide rerun for a distinction the model already
+   makes reliably. **Checked, not assumed:** rerun both after the change —
+   `requests`'s `env_conditional` score is unchanged (1.5/10, identical
+   reasoning style, confirmed no false-positive regression); `ctx`'s
+   `0.2.5` pair's `env_conditional` moved from 9.0 to 10.0 (`llm_base_score`
+   56.5→58.0, same HIGH bucket, no reclassification) — the widened prompt
+   language made an already-correct signal slightly more confident, not
+   differently shaped. Given no bucket changed and no committed report's
+   correctness was invalidated, the canonical `ctx` reports were **not**
+   re-archived a third time for this change; the two verification reruns
+   are documented here and in `malicious/ctx/FINDINGS.md` observation 2
+   instead. Regression risk on the rest of the corpus is low by the same
+   logic that applied to `resource_exhaustion`'s rollout (RQ3) — this
+   dimension's weight and every other dimension are unchanged.
 10. **✅ Implemented (2026-08-11). Two narrow diff-engine blind spots on the
    PyPI side — neither caused a misclassification originally, but fixing
    them changed a real result anyway.** (a) `requirements.txt` was parsed

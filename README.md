@@ -40,14 +40,18 @@ chainwatch is a research tool that combines semantic diff analysis (powered by C
 | Obfuscation | 20% | base64, eval, dynamic require patterns |
 | Resource exhaustion | 20% | Unbounded loops/recursion, unthrottled blocking calls (denial-of-service) |
 | Install hooks | 15% | New postinstall/preinstall scripts |
-| Env conditionals | 15% | CI detection, platform gating |
+| Env conditionals | 15% | CI/platform-gated branching, *or* env vars read/exfiltrated for credential theft |
 | Dependency changes | 10% | New transitive dependencies |
 
 `resource_exhaustion` was added after the `colors` corpus entry
 (`dataset/malicious/colors/`) showed a real denial-of-service attack
 scoring LOW under the original five dimensions — none of them had any
-concept of "this code never returns." See
-`dataset/findings/README.md` recommendation #1.
+concept of "this code never returns." `env_conditional`'s definition was
+widened after the `ctx` corpus entry (`dataset/malicious/ctx/`) showed the
+model already correctly scoring environment-variable *exfiltration* highly
+on this dimension despite the label only describing *branching* logic — a
+documentation correction to match validated behavior, not a new capability.
+See `dataset/findings/README.md` recommendations #1 and #9.
 
 ## Quick Start
 

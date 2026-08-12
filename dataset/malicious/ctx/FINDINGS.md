@@ -227,27 +227,39 @@ other "complete attack reconstruction" in this corpus. `install_hooks` and
 `resource_exhaustion` are still both correctly 0.0 on both pairs — the fix
 didn't touch either dimension, it only closed a metadata-parsing gap.
 
-### 2. `env_conditional` is doing double duty, and it happens to work here
+### 2. `env_conditional` was doing double duty — now it's documented, not just observed
 
-The dimension's stated definition (`models.py`) is "conditional logic gated
-on env vars, platform, or CI detection" — code that *branches its behavior*
-based on environment state, the canonical example being a payload that
-checks `if not process.env.CI` to avoid triggering in automated scans.
-`ctx`'s actual pattern is different: it *reads and exfiltrates* environment
-variable values — there's no branching on them at all, `Ctx.__init__`
-unconditionally sends whatever it finds. The model scores this dimension
-9/10 on both pairs post-fix anyway, and its reasoning (quoted above) makes
-clear it's rewarding "this code touches environment variables in a
+The dimension's stated definition (`models.py`) *was* "conditional logic
+gated on env vars, platform, or CI detection" — code that *branches its
+behavior* based on environment state, the canonical example being a
+payload that checks `if not process.env.CI` to avoid triggering in
+automated scans. `ctx`'s actual pattern is different: it *reads and
+exfiltrates* environment variable values — there's no branching on them at
+all, `Ctx.__init__` unconditionally sends whatever it finds. The model
+scored this dimension 8-9/10 on both pairs anyway, and its reasoning made
+clear it was rewarding "this code touches environment variables in a
 security-relevant way," not "this code's control flow is gated by an
-environment check" — a broader reading than the dimension's own docstring
-describes. That broader reading is what makes this incident classify
-correctly (`env_conditional` is the second-largest contributor to both
-scores), so nothing here is a false positive — but it's worth being honest
-that the dimension's real behavior is somewhat wider than its stated
-definition, discovered only because this incident happens to sit in the
-gap between "gates on env vars" and "reads env vars for exfiltration."
-Filed as a documentation/scope question, not a bug — see recommendation #9
-in `dataset/findings/README.md`.
+environment check" — broader than the dimension's own docstring described
+at the time.
+
+**Fixed 2026-08-11** (`dataset/findings/README.md` recommendation #9): the
+label and system prompt now describe both patterns — branching *and*
+read/exfiltration — as the same dimension explicitly, rather than leaving
+the broader half implicit. A split into two dimensions was considered and
+rejected: `requests` (the corpus's one benign control with real,
+non-malicious env-var-reading code) already scored this dimension a
+correct 1.5/10 before the change, meaning the model was already
+discriminating "legitimate config read" from "credential harvesting"
+correctly within the single dimension. Rerun after the change:
+`requests`'s score is exactly unchanged (1.5/10); `ctx`'s `0.2.5` pair
+moved from 9.0 to 10.0 (`llm_base_score` 56.5→58.0, same HIGH bucket) —
+the widened prompt made an already-correct signal marginally more
+confident, not differently shaped. Given no severity bucket changed, the
+canonical `ctx` reports committed to this corpus were **not** re-archived
+a third time for this specific change (they still reflect the
+`requirements.txt`/`maintainer_changed` fix from observation 3/4 above);
+58.0 vs. the committed 56.5 is the expected result of rerunning against
+the current prompt, not a discrepancy.
 
 ### 3. A real diff-engine blind spot — fixed the same day, tested against this exact incident
 

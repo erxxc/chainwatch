@@ -197,10 +197,14 @@ positive — but it's a partial answer, not a full one: its attack shape
 doesn't happen to exercise either of the two mechanisms above, so whether
 `resource_exhaustion` and `_apply_dimension_floor` actually generalise past
 the four incidents that shaped them is **still open**. `ctx`'s own
-reconstruction also surfaced two narrower, unfixed gaps on the PyPI side
-(`requirements.txt` isn't parsed for dependencies; `maintainer_changed`
-detection is npm-only) — see `findings/README.md` recommendations #9 and
-#10. A follow-up attempt at exactly the sixth incident recommendation #7
+reconstruction surfaced two further diff-engine gaps on the PyPI side
+(`requirements.txt` wasn't parsed for dependencies; `maintainer_changed`
+detection was npm-only), plus a documentation gap (`env_conditional`'s
+stated definition undersold what it actually, correctly, scored) — all
+three fixed the same session (`findings/README.md` recommendations #9 and
+#10), the first two reconfirmed on a rerun against `ctx` itself, which is
+what moved its `0.2.5` pair from MEDIUM to HIGH. A follow-up attempt at
+exactly the sixth incident recommendation #7
 still calls for — `coa`/`rc` (npm, 2021), picked to land `install_hooks`
 near the floor rule's trigger — hit a real sourcing wall instead: the
 actual payload was never publicly recovered by anyone, in any form more

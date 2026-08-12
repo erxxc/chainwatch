@@ -78,7 +78,13 @@ No preamble, no markdown, no explanation outside the JSON structure.
 - network_calls       : New or changed network calls (HTTP, DNS, sockets)
 - obfuscation         : Obfuscation/encoding patterns (base64, eval, dynamic require/import)
 - install_hooks       : Postinstall/preinstall script additions or changes
-- env_conditional     : Conditional logic gated on env vars, platform, or CI detection
+- env_conditional     : Two related but distinct patterns, both scored on this dimension: (a) \
+conditional logic that *branches control flow* based on env vars, platform, or CI detection \
+(e.g. an evasion check like "if not process.env.CI"), and (b) code that *reads and sends \
+elsewhere* the values of environment variables (e.g. exfiltrating AWS_SECRET_ACCESS_KEY) — no \
+branching required for (b), the read/exfiltration itself is the signal. Score legitimate \
+configuration reads (a platform check, a documented env var read for a config path) low; score \
+credential/secret harvesting via env vars high regardless of whether any branching is present.
 - dependency_changes  : Dependency graph changes (new transitive dependencies)
 - resource_exhaustion : Denial-of-service / resource-exhaustion patterns — unbounded loops, \
 unbounded recursion, or blocking/spinning operations with no timeout, no exit condition, and \

@@ -119,6 +119,21 @@ class RiskDimension(BaseModel):
 # #3), env_conditional unchanged at 15%. resource_exhaustion enters at 20%,
 # tied with network_calls/obfuscation as the top weight — a DoS payload is
 # not inherently less severe than an exfiltration one.
+#
+# env_conditional's label widened 2026-08-11 (dataset/findings/README.md
+# recommendation #9): the corpus's ctx reconstruction showed the model
+# already scoring this dimension 8-9/10 on an attack that *reads and
+# exfiltrates* environment variables (AWS keys, hostname) with no branching
+# on them at all — a materially different pattern from the dimension's
+# original "conditional logic gated on env vars" definition (control flow
+# that *branches* on environment state, e.g. a CI-detection evasion check).
+# The model's actual behaviour was already correct and already safe — the
+# corpus's one benign PyPI control with real env-var-reading code
+# (`requests`, `os.environ.get('NETRC')`) scores this dimension 1.5/10, not
+# 0, correctly distinguishing "reads a var for legitimate configuration"
+# from "reads a var to exfiltrate it" even before this change — so this is
+# a documentation correction to match validated behaviour, not a new
+# behaviour being introduced. No weight change.
 DIMENSIONS: list[dict[str, Any]] = [
     {
         "name": "network_calls",
@@ -137,7 +152,10 @@ DIMENSIONS: list[dict[str, Any]] = [
     },
     {
         "name": "env_conditional",
-        "label": "Conditional logic gated on env vars, platform, or CI detection",
+        "label": (
+            "Conditional logic gated on env vars/platform/CI, or environment "
+            "variables read/exfiltrated for credential theft"
+        ),
         "weight": 0.15,
     },
     {
