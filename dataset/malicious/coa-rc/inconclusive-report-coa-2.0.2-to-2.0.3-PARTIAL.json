@@ -1,0 +1,141 @@
+{
+  "schema_version": "0.2.0",
+  "ecosystem": "npm",
+  "package": "coa",
+  "from_version": "2.0.2",
+  "to_version": "2.0.3",
+  "risk_score": 56.0,
+  "severity": "HIGH",
+  "llm_base_score": 51.0,
+  "dimensions": [
+    {
+      "name": "network_calls",
+      "label": "New or changed network calls",
+      "score": 8.0,
+      "weight": 0.2,
+      "reasoning": "The placeholder comments in compile.bat describe the real payload as having made network calls via curl/wget/certutil to download sdd.dll from an external domain (pastorcryptograph[.]at). The actual network call code is not present in this diff (it's a placeholder), but the documented behaviour is clear. Confidence is moderate because the actual payload code is absent.",
+      "confidence": 0.4
+    },
+    {
+      "name": "obfuscation",
+      "label": "Obfuscation / encoding patterns (base64, eval, dynamic require)",
+      "score": 7.0,
+      "weight": 0.2,
+      "reasoning": "The placeholder comments in compile.bat and compile.js explicitly state the real payload was obfuscated via variable-expansion (compile.bat) and obfuscated JavaScript (compile.js). The actual obfuscated code is not visible in this diff, reducing confidence, but the documented pattern is a strong indicator.",
+      "confidence": 0.4
+    },
+    {
+      "name": "install_hooks",
+      "label": "Postinstall / preinstall script additions or changes",
+      "score": 10.0,
+      "weight": 0.15,
+      "reasoning": "A new 'preinstall' hook is explicitly flagged as added in the metadata. The compile.js header comment confirms the real preinstall script content: 'start /B node compile.js & node compile.js'. This is a definitive malicious pattern — a preinstall hook added to a previously clean package to execute attacker-controlled code at install time.",
+      "confidence": 0.9
+    },
+    {
+      "name": "env_conditional",
+      "label": "Conditional logic gated on env vars, platform, or CI detection",
+      "score": 2.0,
+      "weight": 0.15,
+      "reasoning": "No evidence of environment-variable or CI-detection logic is visible in the diff. The placeholder comments do not mention such logic. Score is low and confidence is low due to the payload not being present.",
+      "confidence": 0.2
+    },
+    {
+      "name": "dependency_changes",
+      "label": "Dependency graph changes (new transitive deps)",
+      "score": 1.0,
+      "weight": 0.1,
+      "reasoning": "No dependency changes are mentioned in the diff metadata. The attack vector appears to be via the preinstall hook executing local scripts rather than through new npm dependencies.",
+      "confidence": 0.3
+    },
+    {
+      "name": "resource_exhaustion",
+      "label": "Denial-of-service / resource-exhaustion patterns (unbounded loops, recursion, unthrottled blocking calls)",
+      "score": 1.0,
+      "weight": 0.2,
+      "reasoning": "No evidence of resource exhaustion patterns in the visible diff. The payload description focuses on credential theft (DanaBot), not denial of service.",
+      "confidence": 0.2
+    }
+  ],
+  "feed_results": [
+    {
+      "source": "osv",
+      "status": "suspicious",
+      "details": "Found 1 advisory/ies: GHSA-73qr-pfmq-6rp8",
+      "url": "https://osv.dev/list?q=coa",
+      "advisory_ids": [
+        "GHSA-73qr-pfmq-6rp8"
+      ],
+      "signing_identity": null,
+      "signing_identity_changed": null,
+      "scorecard_score": null
+    },
+    {
+      "source": "rekor",
+      "status": "no_data",
+      "details": "No Sigstore provenance attestation found for coa@2.0.3.",
+      "url": null,
+      "advisory_ids": [],
+      "signing_identity": null,
+      "signing_identity_changed": null,
+      "scorecard_score": null
+    },
+    {
+      "source": "scorecard",
+      "status": "suspicious",
+      "details": "Score: 2.5/10. Maintained=0, Code-Review=3, Signed-Releases=-1, Branch-Protection=0",
+      "url": "https://scorecard.dev/viewer/?uri=github.com/veged/coa",
+      "advisory_ids": [],
+      "signing_identity": null,
+      "signing_identity_changed": null,
+      "scorecard_score": 2.5
+    }
+  ],
+  "score_modifiers": [
+    {
+      "source": "scorecard",
+      "rule": "scorecard_poor",
+      "delta": 5.0,
+      "note": "Weak OpenSSF Scorecard (2.5/10) amplifies risk"
+    }
+  ],
+  "diff_summary": {
+    "files_added": [
+      "compile.bat",
+      "compile.js"
+    ],
+    "files_removed": [],
+    "files_modified": [],
+    "file_diffs": [
+      {
+        "path": "compile.bat",
+        "change_type": "added",
+        "lines_added": 9,
+        "lines_removed": 0,
+        "unified_diff": "+:: *** PLACEHOLDER -- NOT THE REAL PAYLOAD. SEE evidence/README.md. ***\n+::\n+:: The actual compile.bat was never recovered verbatim (see compile.js's\n+:: header comment for why). Independently verified, from vendor writeups:\n+:: it was obfuscated via variable-expansion, attempted curl / wget /\n+:: certutil in sequence to download a file named sdd.dll from\n+:: pastorcryptograph[.]at (long dead), then ran regsvr32.exe against it\n+:: and rundll32.exe to execute it. The payload was identified as the\n+:: DanaBot password-stealing trojan. Nothing below this line is real."
+      },
+      {
+        "path": "compile.js",
+        "change_type": "added",
+        "lines_added": 14,
+        "lines_removed": 0,
+        "unified_diff": "+// *** PLACEHOLDER -- NOT THE REAL PAYLOAD. SEE evidence/README.md. ***\n+//\n+// The actual compile.js from the November 2021 coa/rc npm hijack was\n+// never recovered byte-for-byte: the malicious versions were live on npm\n+// for ~72 minutes before takedown, too short a window for any archive to\n+// cache the real tarball, and no researcher who saw the code published a\n+// verbatim transcription. This file exists only so the real, verified\n+// preinstall hook (\"start /B node compile.js & node compile.js\") has\n+// something to point at.\n+//\n+// Independently verified, from the GitHub incident thread and 10+\n+// corroborating vendor writeups (not reproduced here as executable\n+// logic): the real compile.js was obfuscated JavaScript that spawned\n+// compile.bat as a child process. Nothing below this line is real."
+      }
+    ],
+    "new_dependencies": [],
+    "removed_dependencies": [],
+    "new_install_hooks": [
+      "preinstall"
+    ],
+    "maintainer_changed": false,
+    "native_addons_added": true,
+    "total_diff_lines": 23,
+    "chunks_sent_to_llm": 1,
+    "diff_truncated": false
+  },
+  "llm_model": "claude-sonnet-4-6",
+  "llm_summary": "This diff corresponds to the well-documented November 2021 coa npm package hijack (2.0.2 → 2.0.3). A new 'preinstall' hook was added that executes compile.js, which in turn spawned compile.bat — an obfuscated Windows batch script that downloaded and executed the DanaBot password-stealing trojan from an external domain via curl/wget/certutil. The actual malicious code is not present in this specific diff (replaced with researcher placeholder comments), but the structural evidence — new preinstall hook, new compile.bat, new compile.js, native addon flag — matches the verified attack pattern with high confidence. This is a definitive supply chain compromise.",
+  "timestamp": "2026-08-12T00:02:34.172059Z",
+  "from_version_sha256": null,
+  "to_version_sha256": null
+}

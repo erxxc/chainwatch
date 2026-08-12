@@ -182,7 +182,7 @@ positive — but it's worth being honest that the dimension's real behavior is
 somewhat wider than its stated definition, discovered only because this
 incident happens to sit in the gap between "gates on env vars" and "reads
 env vars for exfiltration." Filed as a documentation/scope question, not a
-bug — see recommendation #8 in `dataset/findings/README.md`.
+bug — see recommendation #9 in `dataset/findings/README.md`.
 
 ### 3. A real diff-engine blind spot, that didn't end up mattering
 
@@ -198,7 +198,7 @@ against the report JSON. In practice this cost nothing: the LLM's
 model reading the literal `import requests` / `import base64` lines inside
 `ctx.py`'s own diff — a real dependency signal, just sourced from prose-level
 code reading rather than chainwatch's structured metadata parser. Filed as
-recommendation #9 (parse `requirements.txt`, and consider whether new
+recommendation #10 (parse `requirements.txt`, and consider whether new
 top-level `import`/`require` statements should feed `new_dependencies`
 directly rather than relying on the LLM to notice them) rather than fixed
 this session — it didn't cause a misclassification here, and doing it well
@@ -218,7 +218,7 @@ caught it anyway from free-text code reading (*"The author name was also
 changed from 'Robert Ledger' to 'Yunus AYDIN', indicating a package takeover
 or impersonation"*), so nothing was missed in practice, but the structured
 signal that npm packages get doesn't exist for PyPI packages. Filed as
-recommendation #9 alongside the `requirements.txt` gap.
+recommendation #10 alongside the `requirements.txt` gap.
 
 ### 5. The cleanest "no feed contribution at all" result in the corpus
 

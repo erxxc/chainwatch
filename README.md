@@ -139,8 +139,15 @@ those two specific mechanisms do — see `dataset/findings/README.md`'s
 "overfitting caveat" and recommendation #7 before treating 100% recall as
 more than "every known gap in this n=16 corpus is closed, and one
 out-of-corpus check on the rest of the pipeline passed." Not every miss
-had the same fix, and not every hit is carried the same way. A
-false-positive baseline (4 benign pairs, zero severity-level false
+had the same fix, and not every hit is carried the same way. A follow-up
+attempt to source a real attack that would actually exercise
+`resource_exhaustion`/`_apply_dimension_floor` (`coa`/`rc`, npm 2021) hit
+a genuine sourcing wall — the real payload was never publicly recovered by
+anyone — and is deliberately **not** counted among these seven; the
+placeholder-file experiment that resulted surfaced a separate finding
+about the LLM layer worth reading before trusting any of these numbers on
+a famous, heavily-written-about incident (`dataset/malicious/coa-rc/`).
+A false-positive baseline (4 benign pairs, zero severity-level false
 positives) lives in
 `dataset/benign/`. Full detail, raw JSON reports, and reproduction
 commands: `dataset/README.md`.

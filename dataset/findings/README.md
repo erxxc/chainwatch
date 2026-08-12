@@ -28,7 +28,12 @@ either new mechanism) correctly classifies a real attack shaped
 differently from anything that came before it. It does **not** validate
 `resource_exhaustion` or `_apply_dimension_floor` themselves — neither one
 plays any role in `ctx`'s result. See "The overfitting caveat, stated as
-plainly as possible" below, and recommendation #7's resolution.
+plainly as possible" below, and recommendation #7's resolution. A separate
+attempt to source a *seventh* incident specifically to stress-test the two
+newest mechanisms hit a real sourcing wall and produced an inconclusive
+result — not counted in the sixteen — that surfaced a second, distinct
+validity concern of its own. See "A second, distinct caveat: narrative
+leakage" below before treating this write-up's numbers as fully settled.
 
 ## How the corpus got here — three gaps, four fixes, all in one day
 
@@ -158,6 +163,68 @@ the four incidents that shaped them** — a different DoS shape than
 dimension at 9-10/confidence ≥0.9 without being DoS-shaped at all. `ctx`
 doesn't do either, by construction (its attack shape doesn't touch
 `resource_exhaustion`), so this remains open.
+
+## A second, distinct caveat: narrative leakage, surfaced by an inconclusive attempt
+
+Three candidates were investigated to close the gap the previous section
+leaves open: `coa`/`rc` (npm, 2021), a Phantom Bot DDoS-botnet campaign
+(npm, 2026), and `torchtriton` (PyPI, 2022). All three failed for
+different, real reasons — see `dataset/malicious/coa-rc/SOURCING.md` for
+the full investigation. `coa`/`rc`'s malicious versions were live on npm
+for only ~72 minutes, too narrow a window for any archive to have caught
+the real payload, and no vendor writeup ever quoted it verbatim. The
+Phantom Bot campaign has the same recoverability problem and is explicitly
+characterised by its own investigators as a "Shai-Hulud clone" — not a
+line worth approaching from another angle. `torchtriton`'s payload is a
+compiled native binary, structurally invisible to a source-diffing tool
+regardless of sourcing.
+
+Rather than fabricate plausible malicious code for `coa`/`rc` and present
+it as a reconstruction — which would break the "never invent, always
+verify" norm every other incident in this corpus holds to — the attempt
+used explicitly-labeled *placeholder* files instead: real, verified facts
+(the exact `preinstall` hook, exact filenames, exact IOCs, the malware
+family) stated as header-comment prose, with no fabricated payload logic.
+The prediction going in was that this would score artificially low, since
+there'd be no real malicious code for the LLM to read. **That prediction
+was wrong — both pairs scored HIGH (56.0, 60.0) — and the reason why is a
+more useful finding than either "high" or "low" would have been alone.**
+
+The LLM's own reasoning text says explicitly, dimension by dimension, that
+it is scoring *the placeholder comments' description of the attack*, not
+any code ("the placeholder comments describe...", "explicitly state...").
+**A diff whose only evidence of maliciousness is descriptive prose — even
+prose that plainly labels itself a placeholder — is sufficient to drive a
+HIGH severity score, with no real payload present at all.** This is a
+different validity concern than the tuning caveat above: that one is about
+two *scoring rules* being validated only against the corpus that produced
+them; this one is about whether the *evaluation method itself* — diffing
+code and asking an LLM to score it — can be quietly driven by narrative
+content sitting inside the diff rather than by the code being analysed.
+Every canonical incident in this corpus is a famous, publicly-documented
+attack; this experiment doesn't prove the LLM is recalling any of them
+from training data specifically, but it does prove, directly and without
+needing that assumption, that description can substitute for code. One
+reassuring detail: the model didn't treat every dimension identically — it
+reserved high confidence (0.9) for the one fact it could verify directly
+from diff structure (`install_hooks`, a real `preinstall` key was
+genuinely added) and kept every inferred dimension at low confidence
+(0.2–0.5), a real discrimination between "I can see this" and "I'm told
+this" even though both pushed the same direction here. Full breakdown in
+`dataset/malicious/coa-rc/FINDINGS.md`.
+
+**This result is not part of this corpus's statistics.** The two reports
+(`inconclusive-report-coa-2.0.2-to-2.0.3-PARTIAL.json`,
+`inconclusive-report-rc-1.2.8-to-1.2.9-PARTIAL.json`) are filenamed to be
+excluded from every `report-*.json` glob used throughout this document and
+are not counted in the corpus overview table or confusion matrix below.
+One thing it does confirm, consistent with `ctx`: `install_hooks=10.0` at
+confidence 0.9 meets `_apply_dimension_floor`'s trigger condition on both
+pairs, and the floor rule still never fires, because the base score
+already clears 30 without it — the second time (of two attempted, both
+inconclusive for the floor rule's original purpose) that a confidently-
+scored dimension has reached the trigger threshold without ever needing
+the floor to matter.
 
 ## Corpus overview
 
@@ -587,8 +654,32 @@ work, not attempted here.
    its attack shape would exercise `resource_exhaustion` or
    `_apply_dimension_floor` — `ctx` was chosen for independence from the
    fixes, not for stress-testing them, and it turned out to do the former
-   without the latter.
-8. **`env_conditional`'s LLM-observed behavior is broader than its stated
+   without the latter. **A follow-up attempt (also 2026-08-11) to source
+   exactly such a sixth incident — `coa`/`rc` (npm, 2021), picked
+   specifically to land `install_hooks` near the floor rule's trigger —
+   hit a real sourcing wall instead: the actual payload was never publicly
+   recovered by anyone (see `dataset/malicious/coa-rc/SOURCING.md`), and
+   two other candidates (a 2026 DDoS-botnet campaign, `torchtriton`) failed
+   for their own separate reasons. This recommendation is still open.**
+8. **Narrative leakage: description can substitute for code in the LLM
+   layer's scoring, at least under one directly-observed condition.** The
+   `coa`/`rc` attempt above used explicitly-labeled placeholder files (no
+   fabricated attacker logic, real verified facts stated as prose) in
+   place of the unrecoverable real payload, on the prediction that this
+   would score low. It scored HIGH on both pairs instead — the model's own
+   reasoning text says, dimension by dimension, that it's scoring what the
+   placeholder comments *say* happened, not any code it can see. This is a
+   distinct concern from recommendation #7/the overfitting caveat above:
+   it's not about a scoring *rule* being tuned on this corpus, it's about
+   whether prose sitting inside a diff can drive the LLM layer's score on
+   its own, independent of whatever code is actually present. Worth
+   testing deliberately in a follow-up: does a diff with *no* payload and
+   *no* descriptive comments (a bare install-hook addition with genuinely
+   empty stub files) score meaningfully lower than one with placeholder
+   narration? This corpus's `coa`/`rc` attempt didn't isolate that
+   variable — it's a natural next experiment, not a conclusion this
+   write-up can draw yet. See `dataset/malicious/coa-rc/FINDINGS.md`.
+9. **`env_conditional`'s LLM-observed behavior is broader than its stated
    definition.** `models.py` describes it as "conditional logic gated on
    env vars, platform, or CI detection" (control flow that *branches* on
    environment state), but `ctx`'s attack — which reads and exfiltrates
@@ -601,7 +692,7 @@ work, not attempted here.
    dimensions, or widen the stated definition to match observed behavior)
    rather than leaving implicit. See `malicious/ctx/FINDINGS.md`
    observation 2.
-9. **Two narrow diff-engine blind spots on the PyPI side, neither of which
+10. **Two narrow diff-engine blind spots on the PyPI side, neither of which
    caused a misclassification this time.** (a) `requirements.txt` is parsed
    by nothing in `src/chainwatch/diff/engine.py` — not a recognised
    `SOURCE_EXTENSIONS` suffix, not a `METADATA_FILES` entry — so a real,

@@ -18,7 +18,8 @@ dataset/
 │   ├── ua-parser-js/            # same layout
 │   ├── colors/                  # same layout
 │   ├── node-ipc/                # same layout — the one registry-diffable real attack
-│   └── ctx/                     # same layout — no live tarball on either side; PyPI, not npm
+│   ├── ctx/                     # same layout — no live tarball on either side; PyPI, not npm
+│   └── coa-rc/                  # NOT a canonical entry — placeholder reconstruction, see its SOURCING.md
 ├── benign/              # false-positive baseline (ground truth: benign)
 │   ├── SOURCING.md               # selection methodology for all 4 pairs
 │   ├── FINDINGS.md               # per-pair analysis and cross-cutting notes
@@ -193,7 +194,15 @@ doesn't happen to exercise either of the two mechanisms above, so whether
 the four incidents that shaped them is **still open**. `ctx`'s own
 reconstruction also surfaced two narrower, unfixed gaps on the PyPI side
 (`requirements.txt` isn't parsed for dependencies; `maintainer_changed`
-detection is npm-only) — see `findings/README.md` recommendations #8 and
-#9. The clearest next step is now a *sixth* incident, chosen specifically
-because its attack shape would land on `resource_exhaustion` or
-`_apply_dimension_floor` rather than around them the way `ctx`'s did.
+detection is npm-only) — see `findings/README.md` recommendations #9 and
+#10. A follow-up attempt at exactly the sixth incident recommendation #7
+still calls for — `coa`/`rc` (npm, 2021), picked to land `install_hooks`
+near the floor rule's trigger — hit a real sourcing wall instead: the
+actual payload was never publicly recovered by anyone, in any form more
+concrete than prose description (see `malicious/coa-rc/SOURCING.md`). The
+resulting placeholder-file experiment is **not** a corpus entry (filenamed
+`inconclusive-*`, excluded from every count in this document), but it
+surfaced a second, genuinely useful finding on its own: description
+embedded in a diff can drive a HIGH score without any real payload present
+— see `findings/README.md` recommendation #8. Recommendation #7 itself
+remains open.
