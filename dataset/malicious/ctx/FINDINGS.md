@@ -158,6 +158,17 @@ fourth incident whose complete-attack reconstruction reaches HIGH.
   first time in this corpus because every other PyPI report
   (`dataset/benign/requests/`) happens to also get `no_data`, just less
   visibly since those pairs aren't otherwise borderline.
+  **Update (2026-08-12, see `dataset/findings/README.md` recommendation
+  #11): this gap is now closed** — chainwatch's Rekor client covers PyPI
+  via the Integrity API (PEP 740). Checked, not assumed, that this doesn't
+  silently change `ctx`'s own committed reports: `ctx`'s PyPI JSON metadata
+  for `0.1.2` currently returns an empty `urls` array (no files left to
+  resolve a provenance filename from) and `requests`'s 2023 releases 404 on
+  the Integrity API regardless (both predate PyPI's 2024 Trusted Publishing
+  rollout) — live-queried 2026-08-12, both still resolve to `rekor: no_data`
+  under the new code, just via "no attestation found" rather than "not
+  implemented." The reports here are correct as committed; the sentence
+  above is now historical, not current, capability.
 - **Scorecard.** `no_data` — "Could not resolve GitHub repo for ctx."
   `ctx`'s PyPI metadata (unchanged by the attacker, see `evidence/README.md`)
   points to `github.com/figlief/ctx`; whatever that repository's current

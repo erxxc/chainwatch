@@ -23,18 +23,24 @@ OSV client:
   - Other advisory IDs (GHSA-*, CVE-*) as FeedStatus.suspicious
 
 Rekor client:
-  - npm packages only. Reads the registry's Sigstore provenance-attestation
-    bundle — GET {npm_registry}/-/npm/v1/attestations/{package}@{version} —
-    and parses the Fulcio-issued signing certificate to recover the identity
-    that published the release (typically a GitHub Actions workflow ref).
-  - Compares the from_version identity against the to_version identity: a
-    changed identity is a maintainer-hijack / stolen-token signal, flagged
-    FeedStatus.suspicious. No attestation on either side (packages predating
-    npm provenance, or PyPI — PEP 740 support not implemented) = no_data.
-  - This reads the identity the certificate *asserts*; it does not perform
-    full Sigstore bundle verification (Rekor inclusion proof, Fulcio chain
-    trust, cert validity window). Treat it as a detection heuristic, not a
-    cryptographic guarantee.
+  - npm: reads the registry's Sigstore provenance-attestation bundle — GET
+    {npm_registry}/-/npm/v1/attestations/{package}@{version} — and parses
+    the Fulcio-issued signing certificate to recover the identity that
+    published the release (typically a GitHub Actions workflow ref).
+  - PyPI (PEP 740): reads the Integrity API's per-file attestation bundle —
+    GET {pypi_integrity_api}/{project}/{version}/{filename}/provenance —
+    and reads the identity straight off the bundle's ``publisher`` object
+    (kind/repository/workflow), which PyPI pre-extracts from the same kind
+    of Fulcio certificate npm's path parses by hand.
+  - Both sides compare the from_version identity against the to_version
+    identity: a changed identity is a maintainer-hijack / stolen-token
+    signal, flagged FeedStatus.suspicious. No attestation on either side
+    (packages predating provenance/Trusted Publishing, or a release
+    published via a classic API token) = no_data.
+  - This reads the identity the certificate/bundle *asserts*; it does not
+    perform full Sigstore bundle verification (Rekor inclusion proof,
+    Fulcio chain trust, cert validity window). Treat it as a detection
+    heuristic, not a cryptographic guarantee.
 
 Scorecard client:
   - GET api.securityscorecards.dev/projects/github.com/{owner}/{repo}
@@ -55,6 +61,7 @@ import httpx
 from cryptography import x509
 
 from chainwatch.config import get_settings
+from chainwatch.fetcher.pypi import fetch_release_filename
 from chainwatch.models import Ecosystem, FeedResult, FeedStatus
 
 log = logging.getLogger(__name__)
@@ -195,45 +202,40 @@ async def _query_rekor(
     """
     Compare Sigstore signing identities between from_version and to_version.
 
-    npm-only for now: packages published with ``npm publish --provenance``
-    (npm 9.5+, 2023) carry a Sigstore bundle at the registry's attestations
-    endpoint. The bundle's Fulcio certificate records *who* published the
-    release — typically a GitHub Actions workflow ref (e.g.
+    npm: packages published with ``npm publish --provenance`` (npm 9.5+,
+    2023) carry a Sigstore bundle at the registry's attestations endpoint.
+    The bundle's Fulcio certificate records *who* published the release —
+    typically a GitHub Actions workflow ref (e.g.
     ``https://github.com/{owner}/{repo}/.github/workflows/release.yml@refs/heads/main``).
-    A release published from a different identity than its predecessor is a
-    maintainer-hijack / stolen-token signal — exactly the pattern behind the
-    event-stream and ua-parser-js incidents this tool's corpus is built on.
 
-    PyPI attestations (PEP 740) are served over the Simple API, not a JSON
-    endpoint, and are not implemented here — this returns ``no_data`` for
-    PyPI rather than guessing at an unimplemented protocol.
+    PyPI: releases published via Trusted Publishing (PEP 740, PyPI 2024+)
+    carry an equivalent Sigstore bundle at the Integrity API, keyed by the
+    release's filename rather than the release itself. PyPI pre-extracts
+    the signer's identity into a structured ``publisher`` object, so this
+    path reads that directly instead of parsing a certificate.
 
-    Packages that predate provenance (essentially anything published before
-    2023) will legitimately have no attestation on either side and report
-    ``no_data`` — that is a correct "we cannot tell" result, not a bug.
+    Either way, a release published from a different identity than its
+    predecessor is a maintainer-hijack / stolen-token signal — exactly the
+    pattern behind the event-stream and ua-parser-js incidents this tool's
+    corpus is built on.
+
+    Packages that predate provenance/Trusted Publishing (or are published
+    via a classic API token rather than OIDC) will legitimately have no
+    attestation on either side and report ``no_data`` — that is a correct
+    "we cannot tell" result, not a bug.
     """
-    if ecosystem != Ecosystem.npm:
-        return FeedResult(
-            source="rekor",
-            status=FeedStatus.no_data,
-            details=(
-                "Sigstore attestation lookup is npm-only "
-                "(PyPI PEP 740 support not implemented)."
-            ),
-        )
-
     log.debug("Rekor: comparing signing identity for %s %s → %s", package, from_version, to_version)
     settings = get_settings()
+    fetch_identity = (
+        _fetch_npm_signing_identity if ecosystem == Ecosystem.npm
+        else _fetch_pypi_signing_identity
+    )
 
     try:
-        from_identity, _ = await _fetch_npm_signing_identity(
-            client, settings, package, from_version
-        )
-        to_identity, to_url = await _fetch_npm_signing_identity(
-            client, settings, package, to_version
-        )
+        from_identity, _ = await fetch_identity(client, settings, package, from_version)
+        to_identity, to_url = await fetch_identity(client, settings, package, to_version)
     except Exception as exc:
-        log.warning("Rekor/npm attestation query failed: %s", exc)
+        log.warning("Rekor attestation query failed: %s", exc)
         return FeedResult(
             source="rekor",
             status=FeedStatus.no_data,
@@ -353,6 +355,98 @@ def _rekor_search_url(attestation: dict[str, Any]) -> str | None:
     """Build a human-viewable search.sigstore.dev link from the bundle's tlog entry."""
     try:
         log_index = attestation["bundle"]["verificationMaterial"]["tlogEntries"][0]["logIndex"]
+        return f"https://search.sigstore.dev/?logIndex={log_index}"
+    except (KeyError, IndexError, TypeError):
+        return None
+
+
+async def _fetch_pypi_signing_identity(
+    client: httpx.AsyncClient,
+    settings: Any,
+    package: str,
+    version: str,
+) -> tuple[str | None, str | None]:
+    """
+    Fetch and parse the Sigstore signing identity for one PyPI package version.
+
+    PyPI's Integrity API (PEP 740) serves attestation bundles per *file*,
+    not per release — GET
+    {pypi_integrity_api}/{project}/{version}/{filename}/provenance — so the
+    release's filename has to be resolved first via
+    ``fetch_release_filename()`` (same sdist-over-wheel preference as the
+    main fetch path, so the file whose provenance gets checked is the file
+    chainwatch would actually download and diff).
+
+    Unlike npm, the response carries a ready-made ``publisher`` object
+    (e.g. ``{"kind": "GitHub", "repository": "pypa/sampleproject",
+    "workflow": "release.yml", "environment": ""}``) describing the Trusted
+    Publisher that signed the release — PyPI has already pulled this out of
+    the Fulcio certificate's SAN for us, so there's no DER to parse here.
+
+    Returns (identity, human_url), both None if no attestation exists: no
+    file found for the version, no provenance recorded for that file, or
+    the release predates/bypasses Trusted Publishing (classic API-token
+    ``twine upload``).
+    """
+    filename = await fetch_release_filename(client, package, version)
+    if filename is None:
+        return None, None
+
+    url = (
+        f"{settings.pypi_integrity_api}/{quote(package, safe='')}/{version}/"
+        f"{quote(filename, safe='')}/provenance"
+    )
+    try:
+        resp = await _get_with_retry(client, url)
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            return None, None
+        raise
+
+    data: dict[str, Any] = resp.json()
+    bundles: list[dict[str, Any]] = data.get("attestation_bundles") or []
+
+    for bundle in bundles:
+        identity = _identity_from_publisher(bundle.get("publisher") or {})
+        if identity is None:
+            continue
+        human_url = _pypi_rekor_search_url(bundle) or (
+            f"https://pypi.org/project/{package}/{version}/#provenance"
+        )
+        return identity, human_url
+
+    return None, None
+
+
+def _identity_from_publisher(publisher: dict[str, Any]) -> str | None:
+    """
+    Build a comparable signing identity string from a PEP 740 attestation
+    bundle's ``publisher`` object.
+
+    Formatted as ``"{kind}:{repository}:{workflow}"`` (plus
+    ``:{environment}`` when the publisher declares one) — e.g.
+    ``"github:pypa/sampleproject:release.yml"``. Not a URL like npm's
+    identity string, just a stable, comparable one: the from/to check only
+    needs equality, not a dereferenceable link.
+    """
+    kind = publisher.get("kind")
+    repository = publisher.get("repository")
+    workflow = publisher.get("workflow")
+    if not kind or not repository or not workflow:
+        return None
+
+    identity = f"{kind.lower()}:{repository}:{workflow}"
+    environment = publisher.get("environment")
+    if environment:
+        identity += f":{environment}"
+    return identity
+
+
+def _pypi_rekor_search_url(bundle: dict[str, Any]) -> str | None:
+    """Build a human-viewable search.sigstore.dev link from the bundle's tlog entry."""
+    try:
+        entries = bundle["attestations"][0]["verification_material"]["transparency_entries"]
+        log_index = entries[0]["logIndex"]
         return f"https://search.sigstore.dev/?logIndex={log_index}"
     except (KeyError, IndexError, TypeError):
         return None

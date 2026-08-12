@@ -169,6 +169,17 @@ class Settings(BaseSettings):
         description="OSV.dev API base URL.",
     )
 
+    pypi_integrity_api: str = Field(
+        default="https://pypi.org/integrity",
+        description=(
+            "PyPI Integrity API base URL — serves PEP 740 (Sigstore) "
+            "attestation bundles per-file at "
+            "{base}/{project}/{version}/{filename}/provenance. Separate from "
+            "pypi_registry (the JSON metadata API) because it's a distinct "
+            "PyPI service with its own path scheme."
+        ),
+    )
+
     rekor_api: str = Field(
         default="https://rekor.sigstore.dev",
         description="Rekor transparency log API base URL.",
@@ -181,7 +192,10 @@ class Settings(BaseSettings):
 
     # ── Validators ───────────────────────────────────────────────────────────
 
-    @field_validator("npm_registry", "pypi_registry", "osv_api", "rekor_api", "scorecard_api")
+    @field_validator(
+        "npm_registry", "pypi_registry", "osv_api", "pypi_integrity_api",
+        "rekor_api", "scorecard_api",
+    )
     @classmethod
     def url_must_not_have_trailing_slash(cls, v: str) -> str:
         return v.rstrip("/")

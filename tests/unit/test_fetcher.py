@@ -40,6 +40,7 @@ from chainwatch.fetcher.pypi import (
     _extract_zip,
     _pick_download,
     _verify_pypi_sha256,
+    fetch_release_filename,
 )
 
 
@@ -398,6 +399,45 @@ class TestPickDownload:
         }
         result = _pick_download(metadata, "pkg", "1.0.0")
         assert result["url"] == "https://example.com/pkg-1.0.0.egg"
+
+
+# ── pypi: fetch_release_filename ────────────────────────────────────────────────
+
+
+class TestFetchReleaseFilename:
+    @respx.mock
+    async def test_prefers_sdist_filename(self):
+        respx.get("https://pypi.org/pypi/pkg/1.0.0/json").respond(json={
+            "urls": [
+                {
+                    "packagetype": "bdist_wheel",
+                    "url": "https://files.pythonhosted.org/pkg-1.0.0-py3-none-any.whl",
+                    "filename": "pkg-1.0.0-py3-none-any.whl",
+                },
+                {
+                    "packagetype": "sdist",
+                    "url": "https://files.pythonhosted.org/pkg-1.0.0.tar.gz",
+                    "filename": "pkg-1.0.0.tar.gz",
+                },
+            ]
+        })
+        async with httpx.AsyncClient() as client:
+            filename = await fetch_release_filename(client, "pkg", "1.0.0")
+        assert filename == "pkg-1.0.0.tar.gz"
+
+    @respx.mock
+    async def test_returns_none_when_version_not_found(self):
+        respx.get("https://pypi.org/pypi/pkg/9.9.9/json").respond(status_code=404)
+        async with httpx.AsyncClient() as client:
+            filename = await fetch_release_filename(client, "pkg", "9.9.9")
+        assert filename is None
+
+    @respx.mock
+    async def test_returns_none_when_no_files_published(self):
+        respx.get("https://pypi.org/pypi/pkg/1.0.0/json").respond(json={"urls": []})
+        async with httpx.AsyncClient() as client:
+            filename = await fetch_release_filename(client, "pkg", "1.0.0")
+        assert filename is None
 
 
 # ── pypi: _extract_tarball ────────────────────────────────────────────────────

@@ -150,6 +150,38 @@ async def fetch_version_history(
     return [v for v, _ in dated]
 
 
+async def fetch_release_filename(
+    client: httpx.AsyncClient,
+    package: str,
+    version: str,
+) -> str | None:
+    """
+    Resolve the filename PyPI published for one release, preferring the
+    sdist over a wheel — same preference as ``fetch_package_versions``, so
+    the file whose provenance gets checked (see
+    ``chainwatch.analyzer.feeds._fetch_pypi_signing_identity``) is the same
+    file chainwatch would actually download and diff.
+
+    The PyPI Integrity API addresses attestations per-*file*, not
+    per-release (``/integrity/{project}/{version}/{filename}/provenance``),
+    so this filename is a required path segment, not just metadata.
+
+    Returns None — rather than raising — if the version doesn't exist on
+    PyPI or has no files published (e.g. fully yanked): both are legitimate
+    "nothing to check" outcomes for a caller doing a best-effort provenance
+    lookup, not errors.
+    """
+    settings = get_settings()
+    try:
+        meta = await _fetch_version_metadata(client, settings.pypi_registry, package, version)
+    except ValueError:
+        return None
+    try:
+        return _pick_download(meta, package, version)["filename"]  # type: ignore[no-any-return]
+    except ValueError:
+        return None
+
+
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
 

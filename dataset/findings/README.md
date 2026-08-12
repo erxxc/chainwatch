@@ -981,6 +981,44 @@ there's a real "before" number to compare a re-measured "after" against.
    FINDINGS.md` observations 3-4 and "The fix, applied to the incident
    that motivated it" for the full before/after.
 
+11. **✅ Implemented (2026-08-12). Rekor/Sigstore signing-identity checks now
+    cover PyPI, closing a gap `ctx`'s reconstruction had already surfaced
+    (recommendation #10) but left unaddressed at the time.** Before this,
+    `analyzer/feeds.py::_query_rekor` short-circuited to `no_data` for any
+    non-npm ecosystem with the message "PyPI PEP 740 support not
+    implemented" — a real capability gap, not a graceful degradation, since
+    PyPI has shipped its own Sigstore-based attestation system (PEP 740,
+    "Trusted Publishing") since 2024. The new PyPI path queries the
+    Integrity API (`GET pypi.org/integrity/{project}/{version}/{filename}/
+    provenance`) rather than npm's per-package attestations endpoint, and
+    reads the signing identity from the response's ready-made `publisher`
+    object (`kind`/`repository`/`workflow`/`environment`) instead of
+    parsing a Fulcio certificate's SAN — PyPI has already done that
+    extraction server-side, unlike npm's raw-bundle response. Comparing
+    `from_version`'s identity against `to_version`'s and flagging a mismatch
+    `suspicious` is otherwise identical to the npm path, and the two now
+    share that comparison logic in `_query_rekor` rather than duplicating
+    it. **Checked, not assumed, that this doesn't retroactively change any
+    committed report**: `_pypi_signing_identity`'s prerequisite is a
+    filename to check, which itself requires the release to have gone
+    through PyPI's Trusted Publishing flow; live-querying both this
+    corpus's PyPI incidents on 2026-08-12 confirmed neither would flip to a
+    `suspicious`/`clean` result under the new code — `requests`'s 2023
+    releases (`dataset/benign/requests/`) 404 on the Integrity API (both
+    predate the 2024 rollout), and `ctx`'s `0.1.2` (`dataset/malicious/ctx/`)
+    now returns an empty `urls` array from PyPI's own JSON API (no file left
+    to resolve a provenance filename from at all), so both still resolve to
+    `rekor: no_data` — just via "no attestation found" rather than "not
+    implemented." No corpus report was re-archived for this change; see
+    `malicious/ctx/FINDINGS.md`'s Rekor bullet for the specific note. The
+    practical effect of this fix is therefore forward-looking only: any
+    *future* PyPI incident reconstructed into this corpus (or any real scan
+    of a Trusted-Publishing-era PyPI package) now gets the same
+    maintainer-hijack signal npm packages already did — exactly the
+    detection layer that would need to exist to catch a PyPI-side
+    event-stream-shaped attack (stolen or reassigned publishing rights,
+    same package, new signer) via signature rather than inference alone.
+
 ## Reproducing this analysis
 
 The corpus table and dimension breakdown:
