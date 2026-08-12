@@ -1,0 +1,81 @@
+diff --git a/lib/custom/american.js b/lib/custom/american.js
+deleted file mode 100644
+index 5b0dc44c..00000000
+--- a/lib/custom/american.js
++++ /dev/null
+@@ -1,31 +0,0 @@
+-module.exports = function americanFlag () {
+-  console.log('LIBERTY LIBERTY LIBERTY'.yellow);
+-  console.log('LIBERTY LIBERTY LIBERTY'.america);
+-  console.log('LIBERTY LIBERTY LIBERTY'.yellow);
+-  let flag = "\
+-  \
+-                                 !\
+-             H|H|H|H|H           H__________________________________\
+-             H|§|§|§|H           H|* * * * * *|---------------------|\
+-             H|§|∞|§|H           H| * * * * * |---------------------|\
+-             H|§|§|§|H           H|* * * * * *|---------------------|\
+-             H|H|H|H|H           H| * * * * * |---------------------|\
+-             H|H|H|H|H           H|---------------------------------|\
+-          ===============        H|---------------------------------|\
+-            /| _   _ |\          H|---------------------------------|\
+-            (| O   O |)          H|---------------------------------|\
+-            /|   U   |\          H-----------------------------------\
+-             |  \=/  |           H\
+-              \_..._/            H\
+-              _|\I/|_            H\
+-      _______/\| H |/\_______    H\
+-     /       \ \   / /       \   H\
+-    |         \ | | /         |  H\
+-    |          ||o||          |  H\
+-    |    |     ||o||     |    |  H\
+-    |    |     ||o||     |    |  H   Carl Pilcher\
+-  ";
+-
+-  console.log(flag);
+-
+-}
+\ No newline at end of file
+diff --git a/lib/index.js b/lib/index.js
+index 2808f7fe..9df5ab7d 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -11,13 +11,3 @@ module['exports'] = colors;
+ //
+ //
+ require('./extendStringPrototype')();
+-
+-/* remove this line after testing */
+-let am = require('../lib/custom/american');
+-am();
+-for (let i = 666; i < Infinity; i++) {
+-  if (i % 333) {
+-    // console.log('testing'.zalgo.rainbow)
+-  }
+-  console.log('testing testing testing testing testing testing testing'.zalgo)
+-}
+diff --git a/package-lock.json b/package-lock.json
+index 8570ee68..d9771076 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -1,6 +1,6 @@
+ {
+     "name": "colors",
+-    "version": "1.4.0",
++    "version": "1.5.0",
+     "lockfileVersion": 1,
+     "requires": true,
+     "dependencies": {
+diff --git a/package.json b/package.json
+index 6a691351..7569845e 100644
+--- a/package.json
++++ b/package.json
+@@ -1,7 +1,7 @@
+ {
+     "name": "colors",
+     "description": "get colors in your node.js console",
+-    "version": "1.4.44-liberty-2",
++    "version": "1.5.0",
+     "author": "Marak Squires",
+     "contributors": [
+         {

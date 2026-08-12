@@ -30,7 +30,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from chainwatch.models import FeedStatus, RiskReport, Severity
+from chainwatch.models import FeedStatus, RiskReport, ScanEntry, Severity
 
 # Module-level console — replace in tests to capture output
 _console = Console(stderr=False)
@@ -89,6 +89,109 @@ def emit_error(message: str, *, json_mode: bool = False) -> None:
         _write_text(json.dumps(payload) + "\n", output_file=None)
     else:
         Console(stderr=True).print(f"[bold red]ERROR[/bold red] {message}")
+
+
+def emit_scan_results(
+    entries: list[ScanEntry],
+    *,
+    json_mode: bool = False,
+    output_file: Path | None = None,
+) -> None:
+    """
+    Render the results of a ``chainwatch scan`` run.
+
+    Args:
+        entries:     One ScanEntry per dependency scanned, successes and
+                     per-package failures alike.
+        json_mode:   If True, emit one ScanEntry per line (ndjson) instead
+                     of a Rich summary table.
+        output_file: If provided, write to this path instead of stdout.
+    """
+    if json_mode:
+        _emit_scan_json(entries, output_file=output_file)
+    else:
+        _emit_scan_rich(entries, output_file=output_file)
+
+
+# ── Scan JSON emitter ─────────────────────────────────────────────────────────
+
+
+def _emit_scan_json(entries: list[ScanEntry], *, output_file: Path | None) -> None:
+    """One ScanEntry per line — streamable, unlike a single JSON array."""
+    lines = "".join(entry.model_dump_json(indent=None) + "\n" for entry in entries)
+    _write_text(lines, output_file=output_file)
+
+
+# ── Scan Rich renderer ────────────────────────────────────────────────────────
+
+
+def _emit_scan_rich(entries: list[ScanEntry], *, output_file: Path | None) -> None:
+    """
+    Render a compact summary table — one row per dependency scanned.
+
+    Deliberately compact rather than a full per-package report panel (what
+    `diff` renders): a scan can cover dozens of dependencies, and dumping a
+    full multi-section report for each would bury the signal. Re-run
+    `chainwatch diff` on anything flagged here for the full breakdown.
+    """
+    console = _get_console(output_file)
+
+    table = Table(
+        box=box.SIMPLE_HEAD,
+        show_header=True,
+        header_style="bold dim",
+        pad_edge=False,
+    )
+    table.add_column("Package", style="white", min_width=16)
+    table.add_column("Diff", style="dim", min_width=20)
+    table.add_column("Score", justify="center", min_width=7)
+    table.add_column("Severity", justify="center", min_width=10)
+    table.add_column("Note", style="dim", min_width=30)
+
+    scored = 0
+    flagged = 0
+    errored = 0
+
+    for entry in entries:
+        version_range = (
+            f"{entry.from_version} → {entry.to_version}"
+            if entry.from_version
+            else f"→ {entry.to_version}"
+        )
+        if entry.report is not None:
+            scored += 1
+            report = entry.report
+            sev_style = _SEVERITY_STYLE[report.severity]
+            if report.severity != Severity.LOW:
+                flagged += 1
+            note = report.llm_summary.splitlines()[0][:80] if report.llm_summary else ""
+            table.add_row(
+                entry.package,
+                version_range,
+                Text(f"{report.risk_score:.1f}", style=sev_style),
+                Text(report.severity.value, style=sev_style),
+                note,
+            )
+        else:
+            errored += 1
+            table.add_row(
+                entry.package,
+                version_range,
+                "—",
+                Text("ERROR", style="dim red"),
+                entry.error or "unknown error",
+            )
+
+    console.print("[bold dim]CHAINWATCH SCAN[/bold dim]")
+    console.print(table)
+    console.print()
+    console.print(
+        f"[dim]{len(entries)} dependencies scanned  ·  "
+        f"{scored} diffed  ·  "
+        f"[/dim][bold yellow]{flagged} flagged (≥ MEDIUM)[/bold yellow]"
+        f"[dim]  ·  {errored} could not be diffed[/dim]"
+    )
+    console.print()
 
 
 # ── JSON emitter ──────────────────────────────────────────────────────────────

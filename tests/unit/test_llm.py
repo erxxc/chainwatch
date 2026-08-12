@@ -102,16 +102,17 @@ class TestPromptHardening:
 
 
 class TestBuildDimensions:
-    def test_builds_five_dimensions(self):
+    def test_builds_six_dimensions(self):
         aggregated = {
             "network_calls": {"score": 5.0, "reasoning": "Found HTTP calls."},
             "obfuscation": {"score": 2.0, "reasoning": "Minor base64."},
             "install_hooks": {"score": 0.0, "reasoning": "None."},
             "env_conditional": {"score": 1.0, "reasoning": "OS check."},
             "dependency_changes": {"score": 3.0, "reasoning": "New dep."},
+            "resource_exhaustion": {"score": 0.0, "reasoning": "No unbounded loops."},
         }
         dims = _build_dimensions(aggregated)
-        assert len(dims) == 5
+        assert len(dims) == 6
         names = [d.name for d in dims]
         assert names == [d["name"] for d in DIMENSIONS]
 
@@ -203,9 +204,9 @@ class TestAggregateChunkScores:
 
 
 class TestStubDimensions:
-    def test_returns_five_dimensions(self):
+    def test_returns_six_dimensions(self):
         dims = _build_stub_dimensions()
-        assert len(dims) == 5
+        assert len(dims) == 6
 
     def test_weights_sum_to_one(self):
         dims = _build_stub_dimensions()
@@ -240,7 +241,7 @@ class TestAnalyzeDiffStubMode:
             from_version="4.17.20",
             to_version="4.17.21",
         )
-        assert len(dims) == 5
+        assert len(dims) == 6
         assert "[STUB]" in summary
         assert model == "claude-sonnet-4-6"
 

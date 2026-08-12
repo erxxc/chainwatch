@@ -50,6 +50,11 @@ version range but does not preserve the package contents. The
 `ossf/malicious-packages` corpus has no entry for `ua-parser-js` — the
 incident predates that project's coverage.
 
+Also checked directly (2026-08-07), also empty: the Datadog
+malicious-software-packages-dataset (404 on all three versions via direct
+API lookup) and unpkg/jsDelivr via the Wayback Machine — see "Recovered
+evidence" below for what the CDN crawl logs actually show.
+
 ## Research finding
 
 This is the same structural problem we documented for `event-stream`:
@@ -94,7 +99,33 @@ Tarball SHA256 (verified at fetch time):
 
 Findings from these runs are in `FINDINGS.md`.
 
-## Future work
+## Recovered evidence (2026-08-07)
+
+Checked directly and confirmed empty for all three malicious versions:
+`ossf/malicious-packages` (metadata only, by design), the Datadog
+malicious-software-packages-dataset (404 via direct API lookup), and
+unpkg/jsDelivr via the Wayback Machine — the CDX logs show other researchers'
+own fetch attempts for `preinstall.bat`/`preinstall.sh` 404ing in real time
+on 2021-10-24, confirming no CDN edge ever cached them inside the ~4-hour
+window before takedown. Unlike event-stream, there is no primary-source file
+recoverable here at all.
+
+`evidence/` now holds `preinstall.js`, `preinstall.sh`, and `preinstall.bat`
+transcribed verbatim from [Socket.dev's writeup](https://socket.dev/blog/inside-node-modules)
+— the only source found quoting the complete scripts rather than excerpts —
+cross-corroborated against Mandiant, Cybereason, and other independent
+vendor writeups (same C2 IP, same payload domain, same XMRig flags, same
+geo-gate logic across all of them). This confirms the prediction below: the
+readable, unobfuscated nature of this payload made it fully reconstructable
+from public secondary sources. See `evidence/README.md` for full provenance.
+
+Still missing: `jsextension`/`jsextension.exe` (the dropped XMRig binary
+itself) and `sdd.dll` (the credential-stealer DLL) — the *scripts* that
+fetch them were recovered, not the binaries. Contacting npm Inc. directly for
+the original tarballs was out of scope for this pass, per project direction.
+
+<details>
+<summary>Original future-work note (superseded by the above)</summary>
 
 If the project requires the actual attack diff, possible paths:
 
@@ -109,3 +140,57 @@ If the project requires the actual attack diff, possible paths:
 - The Datadog `malicious-software-packages-dataset` may contain
   `jsextension` itself (the dropped payload) even if the parent tarball
   is missing — worth checking if payload-side analysis becomes a goal.
+
+</details>
+
+## Reconstructed pair — the actual attack, run for real (2026-08-10)
+
+Unlike `event-stream`/`flatmap-stream` (no live base tarball anywhere),
+`ua-parser-js@0.7.28` **is** still published — so this reconstruction is
+closer in shape to `node-ipc`/`colors` than to `flatmap-stream`: a real,
+still-published base tarball, fetched via chainwatch's own npm fetcher
+(same code path the registry pipeline uses), with the recovered attack
+files spliced onto a copy of it. Specifically: `preinstall.js`,
+`preinstall.sh`, and `preinstall.bat` (byte-identical to `evidence/` —
+hashes in `evidence/README.md`) were copied to the package root, and
+`package.json`'s `scripts` gained `"preinstall": "start /B node
+preinstall.js & node preinstall.js"` — the exact wiring documented above
+and in `evidence/README.md`. The two resulting directories were diffed,
+analysed, and feed-queried directly — never packaged into an installable
+tarball, never served through a registry.
+
+| pair | role | report |
+|---|---|---|
+| `0.7.28 → 0.7.29` *(reconstructed)* | **the actual attack, as chainwatch's diff engine sees it today** | `report-0.7.28-to-0.7.29-RECONSTRUCTED.json` |
+
+**First result (pre-fix): 42.5/100, MEDIUM** — flagged, but the weakest hit
+in the corpus, for a specific and fixable reason: chainwatch's
+`SOURCE_EXTENSIONS` allowlist (`src/chainwatch/diff/engine.py`) didn't
+include `.sh`/`.bat`, so `preinstall.sh`/`preinstall.bat` — where the
+actual miner-download and credential-stealer logic lives — were never
+enumerated by the diff engine at all, despite being physically present in
+the directory it diffed. Only the dispatcher (`preinstall.js`) and the
+`package.json` metadata diff reached the LLM. That pre-fix report is
+preserved at `pre-fix-report-0.7.28-to-0.7.29-RECONSTRUCTED.json` for
+citation.
+
+A controlled experiment (`SOURCE_EXTENSIONS` patched in-process to add
+`.sh`/`.bat`, otherwise identical run) reached **57.5, HIGH** on the same
+attack — saved as `experiment-full-visibility-0.7.28-to-0.7.29.json` (not a
+`report-*.json`; at the time it required modifying chainwatch's actual
+behaviour, so it was a comparison artifact, not a corpus ground-truth
+entry).
+
+**The gap was fixed the same day** — `SOURCE_EXTENSIONS` now includes
+`.sh`/`.bat`/`.ps1`/`.cmd` — and the reconstruction was rerun against the
+real, unmodified fixed code: **60.0/100, HIGH.** Later the same day, a
+sixth risk dimension (`resource_exhaustion`) and a
+`definitive_dimension_floor` aggregator rule landed too (built for the
+`colors` incident, `malicious/colors/SOURCING.md`) — rerun again for
+corpus consistency: `resource_exhaustion` scores 10.0 here as well (the
+model reads the XMRig cryptominer as its own kind of resource abuse).
+**Current result: 67.0/100, HIGH.** This is now the canonical
+`report-0.7.28-to-0.7.29-RECONSTRUCTED.json`, i.e. what `chainwatch diff`
+would produce today (modulo LLM non-determinism) if `0.7.29` were still
+fetchable. Full before/after breakdown in
+`FINDINGS.md`.

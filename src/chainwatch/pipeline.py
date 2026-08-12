@@ -1,0 +1,177 @@
+"""
+chainwatch.pipeline
+~~~~~~~~~~~~~~~~~~~
+
+The core version-to-version diff pipeline, shared by the ``diff`` and
+``scan`` CLI commands.
+
+This used to live inline in ``cli.py`` as a private helper, back when
+``diff`` was the only caller. ``scan`` needs to run the same pipeline many
+times against one shared ``httpx.AsyncClient`` (so a lockfile scan benefits
+from connection pooling across dozens of packages instead of paying a fresh
+TCP/TLS handshake per package), so the pipeline itself no longer owns the
+client's lifecycle — the caller creates one client and passes it in,
+whether that's a single `diff` run or a `scan` loop.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+
+import httpx
+
+from chainwatch.config import get_settings
+from chainwatch.models import Ecosystem, RiskReport
+
+log = logging.getLogger(__name__)
+
+
+def build_http_client() -> httpx.AsyncClient:
+    """
+    Build the shared ``httpx.AsyncClient`` used for all registry/feed/tarball
+    requests in a pipeline run (or a whole `scan` batch of them).
+
+    Centralised so `diff` and `scan` construct it identically — same timeout,
+    same redirect policy, same User-Agent — without duplicating the call.
+    """
+    settings = get_settings()
+    return httpx.AsyncClient(
+        timeout=httpx.Timeout(settings.http_timeout),
+        follow_redirects=True,
+        headers={"User-Agent": f"chainwatch/{_get_version()} (research tool)"},
+    )
+
+
+async def run_diff_pipeline(
+    client: httpx.AsyncClient,
+    ecosystem: Ecosystem,
+    package: str,
+    from_version: str,
+    to_version: str,
+    no_feeds: bool,
+) -> RiskReport:
+    """
+    Execute the full chainwatch pipeline for a single package diff.
+
+    Pipeline stages (in order):
+      1. Fetch both package versions from the registry
+      2. Compute structured diff (engine + chunker)
+      3. Concurrently:
+           a. Send diff chunks to LLM for risk analysis
+           b. Query all three threat feeds (OSV, Rekor, Scorecard)
+      4. Aggregate scores into composite RiskReport
+
+    The concurrent stage (3) is the key architectural decision: LLM calls
+    are slow (~5–15s) and feed calls are fast (~0.5–2s), so running them
+    in parallel saves wall-clock time without complicating the code.
+
+    Args:
+        client:        Shared httpx.AsyncClient (caller-owned lifecycle —
+                        this function never opens or closes it, so a `scan`
+                        loop can reuse one client's connection pool across
+                        many calls).
+        ecosystem:     npm or pypi
+        package:       Package name
+        from_version:  Baseline version
+        to_version:    Target version
+        no_feeds:      If True, skip feed lookups
+
+    Returns:
+        Fully assembled RiskReport
+    """
+    from chainwatch.analyzer import aggregator, feeds
+    from chainwatch.analyzer.llm import analyze_diff
+    from chainwatch.diff import chunker, engine
+    from chainwatch.fetcher import npm, pypi
+    from chainwatch.models import FeedResult, FeedStatus
+
+    settings = get_settings()
+
+    # ── Stage 1: Fetch ────────────────────────────────────────────────────────
+    log.info(
+        "Stage 1/4 — fetching %s/%s %s → %s",
+        ecosystem.value, package, from_version, to_version,
+    )
+
+    if ecosystem == Ecosystem.npm:
+        fetch_result = await npm.fetch_package_versions(
+            client, package, from_version, to_version,
+        )
+    else:
+        fetch_result = await pypi.fetch_package_versions(
+            client, package, from_version, to_version,
+        )
+
+    with fetch_result:  # ensures temp dirs are cleaned up
+        # ── Stage 2: Diff ───────────────────────────────────────────────────
+        log.info("Stage 2/4 — computing diff")
+        diff_summary = engine.compute_diff(fetch_result.from_dir, fetch_result.to_dir)
+        diff_chunks = chunker.chunk_diff(diff_summary, settings.max_tokens_per_chunk)
+
+        # ── Stage 3: Concurrent LLM + feeds ──────────────────────────────────
+        log.info(
+            "Stage 3/4 — LLM analysis + feed lookups (%d chunk(s), feeds=%s)",
+            len(diff_chunks), "off" if no_feeds else "on",
+        )
+
+        # Build stub feed results if feeds are disabled
+        no_feeds_msg = "Feeds disabled (--no-feeds)"
+        stub_feed_results: list[FeedResult] = [
+            FeedResult(source="osv", status=FeedStatus.no_data, details=no_feeds_msg),
+            FeedResult(source="rekor", status=FeedStatus.no_data, details=no_feeds_msg),
+            FeedResult(source="scorecard", status=FeedStatus.no_data, details=no_feeds_msg),
+        ]
+
+        llm_task = asyncio.create_task(
+            analyze_diff(
+                diff_summary=diff_summary,
+                diff_chunks=diff_chunks,
+                package=package,
+                ecosystem=ecosystem,
+                from_version=from_version,
+                to_version=to_version,
+            )
+        )
+
+        async def _stub_feeds() -> list[FeedResult]:
+            return stub_feed_results
+
+        feeds_task = asyncio.create_task(
+            feeds.run_all_feeds(
+                client=client,
+                package=package,
+                ecosystem=ecosystem,
+                from_version=from_version,
+                to_version=to_version,
+            ) if not no_feeds else _stub_feeds()
+        )
+
+        (dimensions, llm_summary, llm_model), feed_results = await asyncio.gather(
+            llm_task, feeds_task
+        )
+
+        # ── Stage 4: Aggregate ────────────────────────────────────────────────
+        log.info("Stage 4/4 — aggregating scores")
+        return aggregator.build_report(
+            package=package,
+            ecosystem=ecosystem,
+            from_version=from_version,
+            to_version=to_version,
+            from_sha256=fetch_result.from_sha256,
+            to_sha256=fetch_result.to_sha256,
+            diff_summary=diff_summary,
+            dimensions=dimensions,
+            feed_results=feed_results,
+            llm_summary=llm_summary,
+            llm_model=llm_model,
+        )
+
+
+def _get_version() -> str:
+    """Return the package version string."""
+    try:
+        from importlib.metadata import version
+        return version("chainwatch")
+    except Exception:
+        return "0.1.0"

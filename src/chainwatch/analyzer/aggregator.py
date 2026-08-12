@@ -27,6 +27,18 @@ Feed contribution:
 
   This separation keeps the LLM score as the primary signal and makes
   the feed contributions auditable — the final report shows both.
+
+Dimension-floor contribution:
+  Not feed-driven — LLM-driven.  If any single dimension scores >= 9.0 at
+  confidence >= 0.9, the score is floored to MEDIUM (>=30). Added
+  2026-08-10 (dataset/findings/README.md recommendation #1's follow-up):
+  the weighted-sum formula structurally caps what one dimension alone can
+  contribute (at a 20% weight, a perfect 10/10 only adds 20 points), which
+  under-scores genuinely single-vector attacks — colors's real sabotage
+  commit scores resource_exhaustion=10.0 at confidence 1.0 and every other
+  dimension a correct 0.0, landing at 25/LOW without this floor. Checked
+  against the full corpus before shipping: no benign-labelled report in
+  this dataset ever hits this threshold on any dimension.
 """
 
 from __future__ import annotations
@@ -51,6 +63,12 @@ _MALICIOUS_FEED_FLOOR_SCORE = 55.0     # minimum score if any feed says maliciou
 _REKOR_IDENTITY_CHANGE_BONUS = 10.0   # added if signing identity changed
 _POOR_SCORECARD_BONUS = 5.0            # added if Scorecard < 4
 _GOOD_SCORECARD_PENALTY = -5.0         # subtracted if Scorecard > 7
+
+# LLM dimension-floor modifier — same idea as the feed floor above, but
+# triggered by the LLM's own dimension scores rather than a threat feed.
+_DEFINITIVE_DIMENSION_SCORE = 9.0        # dimension score threshold
+_DEFINITIVE_DIMENSION_CONFIDENCE = 0.9   # dimension confidence threshold
+_DEFINITIVE_DIMENSION_FLOOR_SCORE = 30.0  # minimum score (MEDIUM) if triggered
 
 
 def build_report(
@@ -86,7 +104,9 @@ def build_report(
         A fully validated RiskReport ready for emission.
     """
     raw_score = _compute_llm_base_score(dimensions)
-    adjusted_score, modifiers = _apply_feed_modifiers(raw_score, feed_results)
+    score, modifiers = _apply_dimension_floor(raw_score, dimensions)
+    adjusted_score, feed_modifiers = _apply_feed_modifiers(score, feed_results)
+    modifiers = modifiers + feed_modifiers
     final_score = max(0.0, min(100.0, adjusted_score))
     severity = RiskReport.severity_for_score(final_score)
 
@@ -130,6 +150,55 @@ def _compute_llm_base_score(dimensions: list[RiskDimension]) -> float:
     This formula fits on a slide.  It is intentionally simple.
     """
     return sum(dim.weighted_contribution for dim in dimensions)
+
+
+def _apply_dimension_floor(
+    base_score: float, dimensions: list[RiskDimension]
+) -> tuple[float, list[ScoreModifier]]:
+    """
+    Floor the score to MEDIUM if any single dimension is both near-maximal
+    (>= 9.0) and near-certain (confidence >= 0.9).
+
+    Why this exists: the weighted-sum formula in ``_compute_llm_base_score``
+    structurally caps what one dimension alone can contribute — at this
+    tool's heaviest weight (20%), a perfect 10/10 score only adds 20 of the
+    100 points. That under-scores genuinely *single-vector* attacks, where
+    four or five of the dimensions are correctly, legitimately zero because
+    the attack simply doesn't touch those surfaces. colors's real sabotage
+    commit (an unconditional infinite loop, see dataset/malicious/colors/)
+    is the case that surfaced this: resource_exhaustion scores 10.0 at
+    confidence 1.0, every other dimension a genuine 0.0, and the weighted
+    sum alone lands at 25 — still LOW. A model that is both maximally
+    confident and maximally severe on one axis shouldn't have that signal
+    diluted away by the other dimensions legitimately having nothing to say.
+
+    This is the LLM-driven counterpart to ``_apply_feed_modifiers``'s
+    ``malicious_floor`` — same shape, different trigger. Verified against
+    every report already committed to ``dataset/`` before shipping: no
+    benign-labelled pair ever reaches this threshold on any dimension (see
+    dataset/findings/README.md recommendation #1).
+    """
+    triggering = [
+        d for d in dimensions
+        if d.score >= _DEFINITIVE_DIMENSION_SCORE
+        and d.confidence is not None
+        and d.confidence >= _DEFINITIVE_DIMENSION_CONFIDENCE
+    ]
+    if not triggering or base_score >= _DEFINITIVE_DIMENSION_FLOOR_SCORE:
+        return base_score, []
+
+    delta = _DEFINITIVE_DIMENSION_FLOOR_SCORE - base_score
+    lead = max(triggering, key=lambda d: d.score)
+    return _DEFINITIVE_DIMENSION_FLOOR_SCORE, [ScoreModifier(
+        source="llm",
+        rule="definitive_dimension_floor",
+        delta=round(delta, 1),
+        note=(
+            f"{lead.name} scored {lead.score:.1f}/10 at confidence "
+            f"{lead.confidence:.2f} — raised score to floor "
+            f"{_DEFINITIVE_DIMENSION_FLOOR_SCORE:.0f}"
+        ),
+    )]
 
 
 def _apply_feed_modifiers(

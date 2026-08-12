@@ -36,6 +36,8 @@ dependencies = [
     "packaging>=24.0",
     # Anthropic SDK
     "anthropic>=0.28.0",
+    # X.509 parsing for Sigstore/Fulcio certificate identity extraction (Rekor feed)
+    "cryptography>=42.0.0",
 ]
 
 [project.optional-dependencies]
@@ -47,10 +49,6 @@ dev = [
     "ruff>=0.4.0",
     "mypy>=1.9.0",
     "types-click",
-]
-api = [
-    "fastapi>=0.111.0",
-    "uvicorn[standard]>=0.29.0",
 ]
 
 [project.scripts]
