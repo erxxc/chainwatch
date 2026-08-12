@@ -95,7 +95,7 @@ records *when* a run happened without preserving minute-level local timing.
 | ua-parser-js | 0.7.28→0.7.30, 0.7.30→0.7.31 (registry) + 0.7.28→0.7.29 (reconstructed) | Account compromise → cryptominer (2021) | No via the registry pipeline — `0.7.29`/`0.8.0`/`1.0.0` unpublished. The actual attack was reconstructed onto a real, still-published `0.7.28` base with the recovered `preinstall.js`/`.sh`/`.bat` spliced in — first scored 42.5/MEDIUM, held short of HIGH by a diff-engine file-extension gap fixed the same day, then rerun again after a second fix to reach **67.0/HIGH**, the highest score in the corpus. See `ua-parser-js/FINDINGS.md`. |
 | colors | 1.3.3→1.4.0 (control) + 1.4.0→1.4.44-liberty-2 (reconstructed) | Maintainer protest-ware, infinite loop (2022) | No via the registry pipeline — sabotage never republished (`1.4.0` is still `latest`). The actual sabotage commit was reconstructed from verified git history and run directly through the pipeline — first scored 7.5/LOW despite being the complete attack, then **35.0/MEDIUM** after two code fixes (see below). See `colors/FINDINGS.md`. |
 | node-ipc | 10.1.0→11.0.0 (registry) + 10.1.0→10.1.1 (reconstructed) | Maintainer protest-ware, destructive wiper (2022) | **Yes, both ways.** The compromised `peacenotwar` dependency is still present in `11.0.0` (registry-diffable today) — originally scored 29.5/LOW, now **30.0/MEDIUM** after the same code fixes that resolved `colors`. The actual destructive wiper (`10.1.1`, unpublished) was reconstructed from its exact verified git commit and run directly through the pipeline — **62.5/HIGH** (originally 69.0; rerun under the current weight matrix). See `node-ipc/FINDINGS.md`. |
-| ctx | 0.1.2→0.1.2-1 (reconstructed) + 0.1.2→0.2.5 (reconstructed) | PyPI account takeover, environment-variable exfiltration (2022) | No via any live fetch — the entire PyPI project was deleted, not just the malicious versions (`GET .../pypi/ctx/json` → 404). Both sides reconstructed from independent archives (Software Heritage for the real 2014 original, the Wayback Machine for both real uploaded malicious sdists) and run directly through the pipeline — **41.5/MEDIUM** (first, simplest malicious release) and **52.0/MEDIUM** (final, complete release), both entirely LLM-driven with zero feed-modifier contribution. See `ctx/FINDINGS.md`. |
+| ctx | 0.1.2→0.1.2-1 (reconstructed) + 0.1.2→0.2.5 (reconstructed) | PyPI account takeover, environment-variable exfiltration (2022) | No via any live fetch — the entire PyPI project was deleted, not just the malicious versions (`GET .../pypi/ctx/json` → 404). Both sides reconstructed from independent archives (Software Heritage for the real 2014 original, the Wayback Machine for both real uploaded malicious sdists) and run directly through the pipeline — **42.5/MEDIUM** (first, simplest malicious release) and **56.5/HIGH** (final, complete release, crossed from MEDIUM after this incident's own reconstruction motivated a same-day diff-engine fix), both entirely LLM-driven with zero feed-modifier contribution. See `ctx/FINDINGS.md`. |
 
 A recurring finding (see the per-package `FINDINGS.md`): for most of the
 highest-profile npm/PyPI incidents the malicious release has been
@@ -124,10 +124,15 @@ node-ipc's diluted pair both needed two *further* code changes — a sixth
 risk dimension (`resource_exhaustion`) plus a new aggregator rule
 (`definitive_dimension_floor`, floors the score to MEDIUM when any one
 dimension is both near-maximal and near-certain) — to move from LOW to
-MEDIUM. ctx needed none of the above: both its pairs classify correctly
-using only the original five dimensions, unmodified, with no feed
-contribution at all — the corpus's first genuinely independent check on
-whether detection generalises past the incidents that shaped it.
+MEDIUM. ctx needed neither of *those* two mechanisms — both its pairs
+classify correctly using only the original five dimensions, with no feed
+contribution at all — but its more complete pair still needed a same-day
+diff-engine metadata fix (`requirements.txt`/`maintainer_changed`
+parsing, motivated by this exact incident) to cross from MEDIUM into
+HIGH. The corpus's first genuinely independent check on whether detection
+generalises past the incidents that shaped it, and the only fix this
+session validated against the exact incident that surfaced it rather than
+a different one.
 
 **Read `findings/README.md`'s "overfitting caveat" before citing 100%
 recall as a general result.** ctx is a real, independently-sourced

@@ -91,15 +91,21 @@ from the four above: it wasn't reconstructed to close a gap chainwatch
 surfaced, it was reconstructed *because* every known gap had already been
 closed** — the direct answer to recommendation #7's call for ground-truth
 positives sourced independently of the incidents that shaped
-`resource_exhaustion`/`_apply_dimension_floor`. Both of its pairs (`0.1.2 →
-0.1.2-1`, `0.1.2 → 0.2.5`) score MEDIUM (41.5 and 52.0) using only the
-original five dimensions — neither new mechanism fires on either pair, and
-both scores are pure `llm_base_score` with zero feed-modifier contribution,
-the cleanest "LLM layer alone" result in the corpus. See `malicious/ctx/
-FINDINGS.md` for the full breakdown, including two new, narrower gaps this
-incident surfaced along the way (recommendations #8 and #9) that — unlike
-the three above — didn't cause a misclassification and weren't fixed this
-session.
+`resource_exhaustion`/`_apply_dimension_floor`. Both of its pairs score
+MEDIUM/HIGH (42.5 and 56.5, after a same-day rerun described below) using
+only the original five dimensions — neither new mechanism fires on either
+pair, and both scores are pure `llm_base_score` with zero feed-modifier
+contribution, the cleanest "LLM layer alone" result in the corpus. `ctx`'s
+own reconstruction then surfaced two further, narrower diff-engine gaps
+(`requirements.txt` unparsed, PyPI `maintainer_changed` missing) — unlike
+the three fixes above, these didn't cause a misclassification, but they
+were fixed the same day anyway (recommendation #10) and reconfirmed on a
+rerun against this exact incident, which is what moved its scores from the
+originally-reported 41.5/52.0 to the current 42.5/56.5 — the `0.2.5` pair
+crossed from MEDIUM into HIGH as a direct result. A third, unrelated
+observation from the same incident (recommendation #9, `env_conditional`'s
+scope) remains open, undecided by design rather than left broken. See
+`malicious/ctx/FINDINGS.md` for the full breakdown.
 
 All tables are computed directly from the sixteen committed `report-*.json`
 files plus live OSV queries; see "Reproducing this analysis" at the end.
@@ -107,7 +113,9 @@ Several report-shaped files are deliberately excluded from that count and
 every table below: pre-fix snapshots preserved for history
 (`malicious/ua-parser-js/pre-fix-report-0.7.28-to-0.7.29-RECONSTRUCTED.json`,
 `malicious/colors/pre-dos-fix-report-1.4.0-to-1.4.44-liberty-2-RECONSTRUCTED.json`,
-`malicious/node-ipc/pre-dos-fix-report-10.1.0-to-11.0.0.json`) and
+`malicious/node-ipc/pre-dos-fix-report-10.1.0-to-11.0.0.json`,
+`malicious/ctx/pre-pypi-fix-report-0.1.2-to-0.1.2-1-RECONSTRUCTED.json`,
+`malicious/ctx/pre-pypi-fix-report-0.1.2-to-0.2.5-RECONSTRUCTED.json`) and
 ua-parser-js's diagnostic full-visibility experiment. See "Reproducing this
 analysis" for the complete inventory.
 
@@ -268,8 +276,8 @@ two cases it was built from.
 | **colors** | **1.4.0→1.4.44-liberty-2** *(reconstructed, post-fix)* | **malicious** (the actual sabotage) | **35.0** | **MEDIUM** |
 | **flatmap-stream** | **0.1.0→0.1.1** *(reconstructed, rerun post-fix)* | **malicious** (the actual bootstrap payload) | **60.0** | **HIGH** |
 | **ua-parser-js** | **0.7.28→0.7.29** *(reconstructed, post-fix)* | **malicious** (the actual miner/credential-stealer attack) | **67.0** | **HIGH** |
-| **ctx** | **0.1.2→0.1.2-1** *(reconstructed)* | **malicious** (first malicious release, plain-text exfil) | **41.5** | **MEDIUM** |
-| **ctx** | **0.1.2→0.2.5** *(reconstructed)* | **malicious** (final malicious release, base64 full-env exfil) | **52.0** | **MEDIUM** |
+| **ctx** | **0.1.2→0.1.2-1** *(reconstructed, rerun post-fix)* | **malicious** (first malicious release, plain-text exfil) | **42.5** | **MEDIUM** |
+| **ctx** | **0.1.2→0.2.5** *(reconstructed, rerun post-fix)* | **malicious** (final malicious release, base64 full-env exfil) | **56.5** | **HIGH** |
 
 ## Precision / recall (Figure 1)
 
@@ -288,21 +296,27 @@ Confusion matrix at the default classification rule — **flagged = severity
 
 Read this table next to "The overfitting caveat" above, not instead of it.
 Read plainly and *with* that caveat: chainwatch never bucketed a benign
-diff above LOW, and — as of the two fixes landed this session — it now
+diff above LOW, and — as of the fixes landed this session — it now
 correctly flags every real attack in this corpus, at three different
 severities that roughly track real severity:
 
-- **Two clean HIGHs, carried differently.** node-ipc's reconstructed wiper
-  (62.5) is carried entirely by the LLM layer — `network_calls`/
-  `obfuscation` both hit the corpus max, no feed rule needed.
-  flatmap-stream's reconstructed bootstrap payload (60.0) leans partly on a
-  feed rule: its LLM base score alone (38.5) only reaches MEDIUM, and it's
-  OSV's `malicious_floor` firing on `MAL-2025-20690` — the only time that
-  ever happens anywhere in this corpus — that pushes it into HIGH.
-  ua-parser-js's reconstructed miner attack (67.0) is the highest score
-  in the corpus, needing one code fix (`SOURCE_EXTENSIONS`) to even reach
-  its payload files and benefiting, perhaps coincidentally, from
-  `resource_exhaustion` reading its cryptominer as resource abuse.
+- **Four HIGHs, carried by three different mechanisms.** node-ipc's
+  reconstructed wiper (62.5) is carried entirely by the LLM layer —
+  `network_calls`/`obfuscation` both hit the corpus max, no feed rule
+  needed. flatmap-stream's reconstructed bootstrap payload (60.0) leans
+  partly on a feed rule: its LLM base score alone (38.5) only reaches
+  MEDIUM, and it's OSV's `malicious_floor` firing on `MAL-2025-20690` — the
+  only time that ever happens anywhere in this corpus — that pushes it
+  into HIGH. ua-parser-js's reconstructed miner attack (67.0) is the
+  highest score in the corpus, needing one code fix (`SOURCE_EXTENSIONS`)
+  to even reach its payload files and benefiting, perhaps coincidentally,
+  from `resource_exhaustion` reading its cryptominer as resource abuse.
+  `ctx`'s complete-attack pair (56.5) is the newest arrival — carried
+  entirely by the original five dimensions, no feed contribution at all,
+  and only reaches HIGH after this session's `requirements.txt`/
+  `maintainer_changed` diff-engine fixes gave `dependency_changes`/
+  `env_conditional` the structured signal they'd been missing (see
+  `malicious/ctx/FINDINGS.md`).
 - **Two MEDIUMs, both reached via the new floor rule, for different
   underlying reasons.** `colors` (35.0) is the case the floor rule was
   built for: a single dimension (`resource_exhaustion=10.0`) carries the
@@ -312,20 +326,21 @@ severities that roughly track real severity:
   (`dependency_changes=9.0`) that was already scoring near-maximally before
   either 2026-08-10 fix existed — the floor rule just started acting on a
   signal that was always there.
-- **Two more MEDIUMs, `ctx`'s pair, reached without either new mechanism.**
-  41.5 and 52.0 are both raw `llm_base_score` — no floor rule, no feed
+- **One more MEDIUM, `ctx`'s simpler pair, reached without either new
+  mechanism.** 42.5 is raw `llm_base_score` — no floor rule, no feed
   modifier, nothing but the original five dimensions responding to a real
   attack shaped like nothing else in this corpus (import-time credential
-  exfiltration, no install hook, no DoS component). The most direct
-  evidence in this corpus that detection doesn't depend on the newest
-  scoring machinery to work at all.
+  exfiltration, no install hook, no DoS component). Its more complete
+  sibling pair reaches HIGH instead (above) — the correct relative
+  ordering, and the most direct evidence in this corpus that detection
+  doesn't depend on the newest scoring machinery to work at all.
 - **Zero misses, for the first time in this corpus's history** — but see
   the overfitting caveat above before treating that as validated for
   `resource_exhaustion`/`_apply_dimension_floor` specifically. `ctx`
   strengthens confidence in the rest of the pipeline; it doesn't exercise
   either of the two newest rules.
 
-### What separates the floor-triggered MEDIUMs from the three HIGHs, dimension by dimension
+### What separates the floor-triggered MEDIUMs from the other HIGHs, dimension by dimension
 
 All six values below are from the current, post-fix canonical reports —
 i.e. what `chainwatch diff`/the reconstruction scripts actually produce
@@ -350,30 +365,37 @@ Scorecard modifier adds another +5.0 on top. In both cases, one dimension
 at ≥9.0/confidence ≥0.9 is doing essentially all the work — the other four
 or five dimensions are legitimately quiet.
 
-`ctx`'s two pairs sit apart from both groups above — MEDIUM, but reached
-without the floor rule ever firing:
+`ctx`'s two pairs sit apart from both groups above — one MEDIUM, one HIGH,
+neither via the floor rule:
 
-| dimension | ctx `0.1.2-1` (MEDIUM) | ctx `0.2.5` (MEDIUM) |
+| dimension | ctx `0.1.2-1` (MEDIUM) | ctx `0.2.5` (HIGH) |
 |---|---|---|
 | network_calls | **10.0** (corpus max) | **10.0** (corpus max) |
-| obfuscation | 1.0 | 7.0 |
+| obfuscation | 1.0 | 8.0 |
 | install_hooks | 0.0 | 0.0 |
-| env_conditional | 9.0 | 8.0 |
-| dependency_changes | 6.0 | 6.0 |
+| env_conditional | 9.0 | 9.0 |
+| dependency_changes | 7.0 | 7.0 |
 | resource_exhaustion | 0.0 | 0.0 |
-| **llm_base_score** | **41.5** | **52.0** |
-| **risk_score (feed-adjusted)** | **41.5** | **52.0** |
+| **llm_base_score** | **42.5** | **56.5** |
+| **risk_score (feed-adjusted)** | **42.5** | **56.5** |
 
-No row in this table required a code fix to reach: `network_calls` maxes
-out the same way node-ipc's/ua-parser-js's HIGH pairs do, `env_conditional`
-lands just under the floor rule's ≥9.0 trigger on `0.2.5` and exactly at it
-on `0.1.2-1` — but never needs to trigger, because the base score already
-clears 30 on `network_calls` and `env_conditional` alone. `resource_exhaustion`
+No row in this table required a *new* dimension or aggregator rule to
+reach — `network_calls` maxes out the same way node-ipc's/ua-parser-js's
+HIGH pairs do, `env_conditional` reaches the floor rule's ≥9.0 trigger on
+both pairs but never needs to fire it, because the base score already
+clears 30 (`0.1.2-1`) or 55 (`0.2.5`) without it. `resource_exhaustion`
 correctly contributes nothing to either score — this attack has no DoS
-component, and the model doesn't manufacture one. `risk_score ==
-llm_base_score` exactly for both — the only pairs in the whole corpus with
-zero feed-modifier contribution of any kind (see `malicious/ctx/FINDINGS.md`
-observation 5).
+component, and the model doesn't manufacture one. Two rows *did* require a
+diff-engine fix this incident's own reconstruction motivated:
+`dependency_changes` (6.0→7.0 on both pairs, confidence 0.9→1.0) once
+`requirements.txt` was parsed for the real new `flask` dependency, and
+`env_conditional` (8.0→9.0 on the `0.2.5` pair only) after PyPI
+`maintainer_changed` detection started catching the real `__author__`
+change — see `malicious/ctx/FINDINGS.md` "The fix, applied to the incident
+that motivated it" for the full before/after. `risk_score ==
+llm_base_score` exactly for both, unaffected by the fix — the only pairs in
+the whole corpus with zero feed-modifier contribution of any kind (see
+`malicious/ctx/FINDINGS.md` observation 5).
 
 An earlier draft of this write-up, working from only node-ipc's two
 positives, proposed **"any single dimension ≥ 7"** as a candidate
@@ -409,8 +431,8 @@ write-up (post-fix numbers throughout):
 | ua-parser-js (reconstructed, `0.7.29`) | **Tested for real:** `network_calls=10.0`, `install_hooks=10.0`, `resource_exhaustion=10.0`, free-text names the incident by CVE, base score 72.0, feed-adjusted **67.0, HIGH** — the corpus's highest score, needed a diff-engine fix to reach its payload files at all | `GHSA-pjwm-rvh2-c87w` | No, never |
 | colors (reconstructed, `1.4.44-liberty-2`) | **Tested for real:** `resource_exhaustion=10.0` at confidence 1.0, every other dimension a correct 0.0, base score 20.0, feed-and-floor-adjusted **35.0, MEDIUM** — needed a new dimension *and* a floor rule to reach even this | `GHSA-5rqg-jm4f-cqx7`, `GHSA-gh88-3pxp-6fm8` | No, never |
 | node-ipc (registry-fetched, `11.0.0`) | **Tested for real:** `dependency_changes=9.0` at confidence 1.0, free-text names the incident, base score 19.5, floor-adjusted **30.0, MEDIUM** | `GHSA-3mpp-xfvh-qh37` | No, never |
-| ctx (reconstructed, `0.1.2-1`) | **Tested for real:** `network_calls=10.0`, `env_conditional=9.0`, free-text names the incident, base score **41.5, MEDIUM** — no floor rule, no feed modifier, original five dimensions only | `GHSA-4g82-3jcr-q52w`, `GHSA-67r3-h899-9w95`, `PYSEC-2022-199` | No, never |
-| ctx (reconstructed, `0.2.5`) | **Tested for real:** `network_calls=10.0`, `obfuscation=7.0`, free-text names the incident, base score **52.0, MEDIUM** — same, zero feed contribution | `GHSA-67r3-h899-9w95`, `PYSEC-2022-199` | No, never |
+| ctx (reconstructed, `0.1.2-1`) | **Tested for real:** `network_calls=10.0`, `env_conditional=9.0`, free-text names the incident, base score **42.5, MEDIUM** — no floor rule, no feed modifier, original five dimensions plus one same-day diff-engine fix | `GHSA-4g82-3jcr-q52w`, `GHSA-67r3-h899-9w95`, `PYSEC-2022-199` | No, never |
+| ctx (reconstructed, `0.2.5`) | **Tested for real:** `network_calls=10.0`, `obfuscation=8.0`, free-text names the incident, base score **56.5, HIGH** — needed a diff-engine fix (`requirements.txt`/`maintainer_changed` parsing) to cross from MEDIUM, zero feed contribution either way | `GHSA-67r3-h899-9w95`, `PYSEC-2022-199` | No, never |
 
 **The finding that generalises across all seven pairs:** in every single
 case, the LLM layer's free-text summary correctly named the real incident
@@ -424,11 +446,16 @@ needed a rare, years-late feed reclassification (feed-carried).
 ua-parser-js needed a diff-engine fix to see its own payload files
 (fetching/visibility-carried). colors and node-ipc's diluted pair needed
 new aggregation logic that didn't exist until this session (aggregator-
-carried). `ctx` needed none of the above — it's the one incident in the
-corpus where the original five dimensions, unmodified, were already
-sufficient. Five different mechanisms produced seven correct outcomes —
-which is a real result, but also means "chainwatch catches attacks" is
-really five much narrower, mechanism-specific claims stacked together,
+carried). `ctx` needed neither a new dimension nor a new aggregator rule —
+its `0.1.2-1` pair reached MEDIUM on the original five dimensions alone —
+but its `0.2.5` pair still needed a diff-engine metadata fix
+(`requirements.txt`/`maintainer_changed` parsing, motivated by this exact
+incident) to cross from MEDIUM into HIGH, putting it closer to
+`ua-parser-js`'s "fetching/visibility-carried" category than to a clean
+zero-fix result. Five different mechanisms produced seven correct
+outcomes — which is a real result, but also means "chainwatch catches
+attacks" is really five much narrower, mechanism-specific claims stacked
+together,
 exactly as many previous drafts of this document argued before any of
 them were true simultaneously.
 
@@ -515,7 +542,7 @@ technically meets the trigger's score/confidence threshold
 (`env_conditional=9.0`, confidence 1.0), but `_apply_dimension_floor`'s own
 short-circuit (`base_score >= 30` returns unmodified, regardless of
 `triggering`) makes it a no-op, since that pair's base score is already
-41.5. See "The overfitting caveat" above for why this check, while real,
+42.5. See "The overfitting caveat" above for why this check, while real,
 doesn't extend to attack shapes not already present in this corpus.
 
 ## RQ4 — comparison with a signature-based classifier
@@ -619,8 +646,8 @@ work, not attempted here.
    without any custom `--threshold` value — a meaningful change from
    before this session, when node-ipc's diluted pair (29.5) and colors's
    reconstructed attack (7.5) both required either a lower threshold or
-   were uncatchable by threshold-tuning alone. `ctx`'s two pairs (41.5,
-   52.0) clear the boundary comfortably, adding two more data points that
+   were uncatchable by threshold-tuning alone. `ctx`'s two pairs (42.5,
+   56.5) clear the boundary comfortably, adding two more data points that
    didn't need the boundary itself to move. Whether this generalises past
    this corpus's seven examples is exactly the open question in "The
    overfitting caveat" above.
@@ -719,23 +746,39 @@ work, not attempted here.
    dimensions, or widen the stated definition to match observed behavior)
    rather than leaving implicit. See `malicious/ctx/FINDINGS.md`
    observation 2.
-10. **Two narrow diff-engine blind spots on the PyPI side, neither of which
-   caused a misclassification this time.** (a) `requirements.txt` is parsed
+10. **✅ Implemented (2026-08-11). Two narrow diff-engine blind spots on the
+   PyPI side — neither caused a misclassification originally, but fixing
+   them changed a real result anyway.** (a) `requirements.txt` was parsed
    by nothing in `src/chainwatch/diff/engine.py` — not a recognised
    `SOURCE_EXTENSIONS` suffix, not a `METADATA_FILES` entry — so a real,
    verified new dependency (`Flask==2.1.0`, added in every `ctx` malicious
-   release) never reaches `diff_summary.new_dependencies`; the LLM caught it
-   anyway by reading the literal `import` lines in `ctx.py`'s own diff. (b)
-   `maintainer_changed` detection (`_extract_metadata_diff`) only compares
-   npm's `package.json` `author` field — there is no equivalent check for
-   Python's `setup.py`/`PKG-INFO` author, despite `ctx`'s attacker changing
-   exactly that field (`'Robert Ledger'` → `'Yunus AYDIN'`); again, the LLM
-   caught it from free-text code reading. Both are real ecosystem
-   asymmetries (npm gets structured signals PyPI doesn't), both are more
-   design work than a one-line allowlist fix (unlike recommendation #2's
-   `SOURCE_EXTENSIONS` gap), and neither is fixed this session — filed here
-   for whenever the corpus's next PyPI incident makes them matter more than
-   they did this time. See `malicious/ctx/FINDINGS.md` observations 3-4.
+   release) never reached `diff_summary.new_dependencies`; the LLM caught
+   it anyway by reading the literal `import` lines in `ctx.py`'s own diff.
+   (b) `maintainer_changed` detection (`_extract_metadata_diff`) only
+   compared npm's `package.json` `author` field — there was no equivalent
+   check for Python packages, despite `ctx`'s attacker changing exactly
+   that category of signal (`'Robert Ledger'` → `'Yunus AYDIN'`, in
+   `ctx.py`'s `__author__` dunder — notably, *not* in `setup.py`'s own
+   `author=` kwarg, which the attacker never touched; a first-draft fix
+   that checked `setup.py`/`pyproject.toml` only, without also checking
+   module-level dunders, would have missed this incident's real change
+   entirely). Both fixed the same day: `_requirements_txt_dependencies`
+   and `_pypi_author` in `src/chainwatch/diff/engine.py`, the latter
+   combining three independent author sources (PEP 621 `pyproject.toml`,
+   `setup.py`, module dunders) rather than short-circuiting between them,
+   specifically so an unchanged `setup.py` author can't mask a real change
+   living somewhere else — a regression test for exactly that scenario is
+   in `tests/unit/test_diff_engine.py::TestPyPIMaintainerChanged`. Rerun
+   against the exact incident that motivated both fixes:
+   `dependency_changes` moved from LLM-inferred (confidence 0.9) to
+   structurally-confirmed (confidence 1.0, score 6.0→7.0) on both `ctx`
+   pairs, and the `0.2.5` pair's composite score crossed from **MEDIUM
+   (52.0) to HIGH (56.5)** as a direct result — the only diff-engine fix
+   this session that was tested against the *exact* incident that
+   surfaced it, rather than a different one. Pre-fix reports preserved at
+   `malicious/ctx/pre-pypi-fix-report-*.json`. See `malicious/ctx/
+   FINDINGS.md` observations 3-4 and "The fix, applied to the incident
+   that motivated it" for the full before/after.
 
 ## Reproducing this analysis
 
@@ -769,10 +812,15 @@ attach to.
 
 As of 2026-08-10, `models.DIMENSIONS` has six entries, not five (see
 `src/chainwatch/models.py` for the exact weights and the rationale
-comment). All seven malicious-labelled reports **are** current, post-fix,
+comment). All seven malicious-labelled reports **are** current,
 six-dimension outputs — the original five were rerun and reconfirmed
 against the fixed code, and `ctx`'s two were run directly against it (no
-earlier version exists, since it was reconstructed after the fix landed).
+five-dimension version of either ever existed, since `ctx` was
+reconstructed after that particular fix landed). `ctx`'s two reports were
+separately rerun again the following day (2026-08-11) against the two
+diff-engine metadata fixes described in recommendation #10 — that
+before/after *does* exist, at `malicious/ctx/pre-pypi-fix-report-*.json`,
+and is unrelated to the dimension-count question this paragraph is about.
 The nine benign-labelled reports (listed in "Corpus overview" above) were
 **not** rerun — they were never candidates for reclassification, since
 neither fix could plausibly move an already-LOW report *upward* by design.
@@ -782,10 +830,12 @@ for the floor-rule trigger condition) without needing to regenerate every
 benign report from scratch.
 
 **Six of the sixteen reports are not reproducible via a single
-`chainwatch diff` invocation** (there's no real *malicious-version* tarball
-to fetch for any of the first four, and `ctx` has no live tarball on
-*either* side). A fifth is listed alongside the first four because its
-*classification*, not its reproducibility, depends on the 2026-08-10 fix:
+`chainwatch diff` invocation** — the first four below (there's no real
+*malicious-version* tarball to fetch for any of them) plus `ctx`'s two
+pairs (no live tarball on *either* side). A seventh bullet is listed
+alongside them — node-ipc's registry pair — not because it's
+unreproducible (it's a plain, real fetch), but because its
+*classification*, not its reproducibility, depends on a same-session fix:
 
 - `node-ipc/report-10.1.0-to-10.1.1-RECONSTRUCTED.json` — apply
   `malicious/node-ipc/evidence/commit-847047cf7f81-relevant.diff` to a real,
@@ -832,6 +882,10 @@ to fetch for any of the first four, and `ctx` has no live tarball on
   Machine URL for the full `ctx-0.1.2-1.tar.gz`/`ctx-0.2.5.tar.gz` sdist
   and extracting it as-is. Full URLs, content hashes, and the exact file
   layout both directories need are in `malicious/ctx/evidence/README.md`.
+  Reproduces against the current codebase directly. Pre-fix states (before
+  `requirements.txt`/`maintainer_changed` parsing landed, recommendation
+  #10) are preserved at `pre-pypi-fix-report-0.1.2-to-0.1.2-1-RECONSTRUCTED.json`
+  and its `0.2.5` counterpart, not part of any corpus count.
 
 The first four are then reproducible by calling
 `chainwatch.diff.engine.compute_diff()` directly on the two resulting

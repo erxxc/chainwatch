@@ -4,16 +4,16 @@
   "package": "ctx",
   "from_version": "0.1.2",
   "to_version": "0.1.2-1",
-  "risk_score": 41.5,
+  "risk_score": 42.5,
   "severity": "MEDIUM",
-  "llm_base_score": 41.5,
+  "llm_base_score": 42.5,
   "dimensions": [
     {
       "name": "network_calls",
       "label": "New or changed network calls",
       "score": 10.0,
       "weight": 0.2,
-      "reasoning": "The `sendRequest` method in ctx.py makes an explicit HTTP GET request to 'https://anti-theft-web.herokuapp.com/hacked/' concatenated with the machine name, AWS_ACCESS_KEY_ID, and AWS_SECRET_ACCESS_KEY. This is a definitive data exfiltration call triggered unconditionally on every instantiation of the Ctx class via `__init__`.",
+      "reasoning": "The diff adds a `sendRequest` method in ctx.py that makes an explicit HTTP GET request to 'https://anti-theft-web.herokuapp.com/hacked/' concatenated with the machine name, AWS_ACCESS_KEY_ID, and AWS_SECRET_ACCESS_KEY. This is called unconditionally from `__init__`, meaning every instantiation of Ctx() exfiltrates credentials to an external server.",
       "confidence": 1.0
     },
     {
@@ -21,7 +21,7 @@
       "label": "Obfuscation / encoding patterns (base64, eval, dynamic require)",
       "score": 1.0,
       "weight": 0.2,
-      "reasoning": "No obfuscation is present. The exfiltration URL and logic are written in plain, readable Python with no base64 encoding, eval, or dynamic imports. The malicious intent is clear without any attempt to hide it.",
+      "reasoning": "No obfuscation techniques such as base64 encoding, eval, or dynamic imports are present. The malicious code is written in plain, readable Python.",
       "confidence": 1.0
     },
     {
@@ -29,7 +29,7 @@
       "label": "Postinstall / preinstall script additions or changes",
       "score": 0.0,
       "weight": 0.15,
-      "reasoning": "No setup.py, pyproject.toml, or other packaging files are modified. No postinstall or preinstall hooks are added. The exfiltration is triggered at class instantiation, not at package install time.",
+      "reasoning": "No postinstall or preinstall scripts are added or modified in this diff.",
       "confidence": 1.0
     },
     {
@@ -37,23 +37,23 @@
       "label": "Conditional logic gated on env vars, platform, or CI detection",
       "score": 9.0,
       "weight": 0.15,
-      "reasoning": "The `__init__` method explicitly reads AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and COMPUTERNAME environment variables. While fallback values ('empty') are used when variables are absent, the primary purpose is to harvest and exfiltrate sensitive AWS credentials from the environment. The logic runs unconditionally on every Ctx instantiation.",
+      "reasoning": "The `__init__` method in ctx.py explicitly reads AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and COMPUTERNAME environment variables. These are specifically targeted cloud credential variables, and their values (or 'empty' placeholders) are sent unconditionally to the external endpoint regardless of whether they are set.",
       "confidence": 1.0
     },
     {
       "name": "dependency_changes",
       "label": "Dependency graph changes (new transitive deps)",
-      "score": 6.0,
+      "score": 7.0,
       "weight": 0.1,
-      "reasoning": "The `requests` library is newly imported in ctx.py (`import requests`). While `requests` itself is a well-known benign library, adding it as a new dependency enables the network exfiltration. If not already declared, this introduces a new transitive dependency graph.",
-      "confidence": 0.9
+      "reasoning": "Two new dependencies are introduced: `requests` (imported directly in ctx.py to enable the exfiltration HTTP call) and `flask` (listed as a new dependency in metadata, though not visibly used in the diff — its presence may be to obscure the true intent or for a future payload). The `requests` addition is directly tied to the malicious network call.",
+      "confidence": 1.0
     },
     {
       "name": "resource_exhaustion",
       "label": "Denial-of-service / resource-exhaustion patterns (unbounded loops, recursion, unthrottled blocking calls)",
       "score": 0.0,
       "weight": 0.2,
-      "reasoning": "No unbounded loops, recursion, or resource exhaustion patterns are present. The added code is a single HTTP GET call and environment variable lookups.",
+      "reasoning": "No unbounded loops, recursion, or resource-exhaustion patterns are present in the diff.",
       "confidence": 1.0
     }
   ],
@@ -118,18 +118,20 @@
         "unified_diff": "+import pytest\n+from ctx import Ctx\n+\n+\n+def test_lookup_error():\n+    \"\"\"Should  return LookupError if no attiibute or key is found\"\"\"\n+    with pytest.raises(LookupError):\n+        x = Ctx()\n+        (x.no_key == 5)\n+    with pytest.raises(LookupError):\n+        x = Ctx()\n+        (x['no_key'] == 5)\n+\n+\n+def test_attribute_error():\n+    \"\"\"Should raise AttributeError if attempt to set an attribute.\"\"\"\n+    with pytest.raises(AttributeError):\n+        x = Ctx()\n+        x.copy = 5\n+\n+\n+def test_attribue_access():\n+    \"\"\"Should return attribute of an object.\"\"\"\n+\n+    x = Ctx()\n+    assert x.__doc__ == x[\"__doc__\"]\n+\n+\n+def test_init():\n+    \"\"\"Should initialize an object with keywords\"\"\"\n+    p = {}\n+    q = {}\n+\n+    x = Ctx(a=p, b=q)\n+    assert x['a'] is p\n+    assert x.a is p\n+    assert x['b'] is q\n+    assert x.b is q\n+\n+\n+def test_item():\n+    \"\"\"Should set an item with ctx['a'] and retrieve it with ctx[a] or ctx.a\"\"\"\n+    p = {}\n+    x = Ctx()\n+    x['a'] = p\n+    assert x.a is p\n+    assert x['a'] is p\n+\n+\n+def test_attr():\n+    \"\"\"Should set an item with ctx.a and retrieve it with ctx[a] or ctx.a\"\"\"\n+\n+    p = {}\n+    x = Ctx()\n+    x.a = p\n+    assert x.a is p\n+    assert x['a'] is p\n+\n+\n+def test_init_copy():\n+    \"\"\"Should create a shallow copy.\"\"\"\n+\n+    p = {}\n+    q = {}\n+\n+    x = Ctx(a=p, b=q)\n+    y = x.copy()\n+    assert x is not y\n+    assert y['a'] is p\n+    assert y.a is p\n+    assert y['b'] is q\n+    assert y.b is q\n+\n+\n+if __name__ == '__main__':\n+    pytest.main()"
       }
     ],
-    "new_dependencies": [],
+    "new_dependencies": [
+      "flask"
+    ],
     "removed_dependencies": [],
     "new_install_hooks": [],
-    "maintainer_changed": false,
+    "maintainer_changed": true,
     "native_addons_added": false,
     "total_diff_lines": 107,
     "chunks_sent_to_llm": 1,
     "diff_truncated": false
   },
   "llm_model": "claude-sonnet-4-6",
-  "llm_summary": "This diff is a definitive supply chain attack. The author has been changed and a malicious `__init__` method has been added to the `Ctx` class that harvests AWS credentials (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY) and the machine hostname from environment variables, then exfiltrates them via an HTTP GET request to 'https://anti-theft-web.herokuapp.com/hacked/' on every class instantiation. The added `test_ctx.py` file serves as camouflage to make the change appear legitimate. This matches the well-documented 2022 `ctx` PyPI package compromise.",
-  "timestamp": "2026-08-11T21:17:52.433811Z",
+  "llm_summary": "This diff is a confirmed credential-stealing supply chain attack. The `ctx` package version 0.1.2-1 introduces code in `ctx.py` that, upon every instantiation of the `Ctx` class, reads AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY from environment variables and exfiltrates them via an HTTP GET request to an external attacker-controlled server (anti-theft-web.herokuapp.com). The maintainer field was also changed, indicating a possible account takeover or malicious maintainer addition. The addition of `flask` as a dependency without any visible usage is suspicious and may serve as cover or future payload delivery.",
+  "timestamp": "2026-08-12T00:49:47.769599Z",
   "from_version_sha256": null,
   "to_version_sha256": null
 }

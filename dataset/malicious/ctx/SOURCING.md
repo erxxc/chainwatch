@@ -108,11 +108,17 @@ feed lookups). `from_version_sha256`/`to_version_sha256` are `null` in both
 reports, same convention as every other reconstruction in this corpus —
 there's no tarball to hash.
 
-**Results: 41.5/100 MEDIUM (`0.1.2-1`), 52.0/100 MEDIUM (`0.2.5`).** Neither
-the `resource_exhaustion` dimension nor the `_apply_dimension_floor`
-aggregator rule — the two mechanisms this incident exists to stress-test —
-played any role in either result (`resource_exhaustion` scores a correct
+**Results (rerun 2026-08-11 after two further diff-engine fixes this
+incident's own reconstruction motivated): 42.5/100 MEDIUM (`0.1.2-1`),
+56.5/100 HIGH (`0.2.5`).** Original run: 41.5/MEDIUM and 52.0/MEDIUM;
+preserved at `pre-pypi-fix-report-*.json`. Neither the `resource_exhaustion`
+dimension nor the `_apply_dimension_floor` aggregator rule — the two
+mechanisms this incident exists to stress-test — played any role in either
+result, before or after the rerun (`resource_exhaustion` scores a correct
 0.0 on both; the floor rule never triggers because the base score already
 clears 30 through the original five dimensions alone). See `FINDINGS.md`
-for the full dimension breakdown and what that result actually means for
-the overfitting caveat.
+for the full dimension breakdown, the two diff-engine fixes
+(`requirements.txt` parsing, PyPI `maintainer_changed` detection — see
+`dataset/findings/README.md` recommendation #10) this incident's own
+reconstruction surfaced and then validated the same day, and what all of
+this actually means for the overfitting caveat.

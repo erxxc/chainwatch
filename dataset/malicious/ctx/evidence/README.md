@@ -48,13 +48,26 @@ without either being derived from the other.
 empty-blob SHA1, `e69de29b...`) to `Flask==2.1.0` (`0.1.2-1` onward) and
 `Flask==2.1.0` + `ctx==0.1.2` (`0.2.3` onward — the attacker's own build
 apparently depended on the real package they'd just replaced). This is a
-real, verified new dependency-file entry, but **chainwatch's diff engine
-never sees it** — `requirements.txt` isn't parsed for dependencies (only
-`setup.py`/`setup.cfg`/`pyproject.toml` are) and isn't a recognised source
-extension either, so it's invisible to both the structured metadata analyzer
-and the LLM's file-level diff view. See `../FINDINGS.md` for why this didn't
-end up mattering for classification here, and why it's flagged as an open
-item rather than fixed this session.
+real, verified new dependency-file entry. **Originally, chainwatch's diff
+engine never saw it** — `requirements.txt` wasn't parsed for dependencies
+(only `setup.py`/`setup.cfg`/`pyproject.toml` were) and wasn't a recognised
+source extension either, so it was invisible to both the structured
+metadata analyzer and the LLM's file-level diff view. **Fixed the same day**
+(`_requirements_txt_dependencies` in `src/chainwatch/diff/engine.py`) and
+reconfirmed on a real rerun against this exact incident — see
+`../FINDINGS.md` observation 3 and `dataset/findings/README.md`
+recommendation #10.
+
+Separately, `__author__` changed from `'Robert Ledger'` to
+`'Yunus AYDIN'` in `ctx.py` itself (not in `setup.py`, whose `author=`
+kwarg the attacker never touched — see above). This had no PyPI equivalent
+to npm's `maintainer_changed` check at all, originally. **Also fixed the
+same day** (`_pypi_author` in `src/chainwatch/diff/engine.py`, which
+checks `pyproject.toml` authors, `setup.py`'s `author=` kwarg, and
+module-level `__author__`/`__email__` dunders independently rather than
+short-circuiting between them — precisely because this incident's real
+change lived in the one location `setup.py`/`pyproject.toml` checks alone
+would have missed). See `../FINDINGS.md` observation 4.
 
 ## Provenance
 
@@ -120,12 +133,17 @@ archived material above rather than a real chainwatch fetch.
 
 Run directly against the current codebase (no monkey-patching, no
 allowlist edits) — this is the first incident in the corpus sourced and
-reconstructed *after* every 2026-08-10 fix rather than before it, so there's
-only one set of numbers, not a before/after pair:
+reconstructed *after* every 2026-08-10 fix rather than before it. Its own
+reconstruction then surfaced two further diff-engine gaps (`requirements.txt`
+parsing, PyPI `maintainer_changed` detection — both real, both visible in
+the `requirements.txt`/`__author__` changes documented above), fixed the
+same day and reconfirmed on a rerun:
 
-- **`0.1.2` → `0.1.2-1`: 41.5/100, MEDIUM** —
+- **`0.1.2` → `0.1.2-1`: 42.5/100, MEDIUM** (originally 41.5) —
   `../report-0.1.2-to-0.1.2-1-RECONSTRUCTED.json`
-- **`0.1.2` → `0.2.5`: 52.0/100, MEDIUM** —
+- **`0.1.2` → `0.2.5`: 56.5/100, HIGH** (originally 52.0/MEDIUM) —
   `../report-0.1.2-to-0.2.5-RECONSTRUCTED.json`
 
-Full dimension breakdown and discussion in `../FINDINGS.md`.
+Pre-fix reports preserved at `../pre-pypi-fix-report-0.1.2-to-0.1.2-1-RECONSTRUCTED.json`
+and `../pre-pypi-fix-report-0.1.2-to-0.2.5-RECONSTRUCTED.json`. Full
+dimension breakdown and discussion in `../FINDINGS.md`.
