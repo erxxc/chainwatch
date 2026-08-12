@@ -266,3 +266,125 @@ class TestAnalyzeDiffStubMode:
         )
         for d1, d2 in zip(dims1, dims2, strict=True):
             assert d1.score == d2.score
+
+
+# ── Real-mode concurrency (chunks sent in parallel, bounded) ──────────────────
+
+
+class TestAnalyzeDiffConcurrency:
+    """
+    analyze_diff() sends chunks with bounded concurrency (recommendation:
+    dataset/findings/README.md's "Latency" section) rather than one at a
+    time. These tests exercise the real (non-stub) code path by
+    monkeypatching _call_with_retry directly -- no real HTTP traffic.
+    """
+
+    async def test_all_chunks_are_analysed_and_aggregated(self, monkeypatch):
+        import chainwatch.analyzer.llm as llm_module
+
+        async def fake_call(client, user_prompt, settings):
+            # Each chunk's marker text is embedded in its own prompt.
+            for i in range(5):
+                if f"CHUNK-{i}" in user_prompt:
+                    score = float(i)
+                    return json.dumps({
+                        "dimensions": [
+                            {"name": "network_calls", "score": score, "reasoning": f"chunk {i}"},
+                        ],
+                        "summary": f"summary-{i}",
+                    })
+            raise AssertionError(f"unrecognised prompt: {user_prompt!r}")
+
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api03-not-a-test-key")
+        get_settings.cache_clear()
+        monkeypatch.setattr(llm_module, "_call_with_retry", fake_call)
+
+        diff = DiffSummary()
+        chunks = [f"CHUNK-{i} content" for i in range(5)]
+        dims, summary, _ = await analyze_diff(
+            diff_summary=diff,
+            diff_chunks=chunks,
+            package="test",
+            ecosystem=Ecosystem.npm,
+            from_version="1.0.0",
+            to_version="1.0.1",
+        )
+
+        # _aggregate_chunk_scores takes the max per dimension across all
+        # chunks -- highest injected score was 4.0 (chunk index 4).
+        network_calls = next(d for d in dims if d.name == "network_calls")
+        assert network_calls.score == 4.0
+        # The summary must come from the *last chunk in input order*
+        # (index 4), not whichever request happens to finish first.
+        assert summary == "summary-4"
+
+    async def test_summary_follows_input_order_not_completion_order(self, monkeypatch):
+        """
+        Deliberately makes the FIRST chunk finish LAST (and vice versa) to
+        prove last_summary is picked by chunk position, not by which
+        asyncio task happens to complete first -- the exact bug bounded
+        concurrency could introduce if summary selection weren't pinned to
+        gather()'s input-order result list.
+        """
+        import asyncio
+
+        import chainwatch.analyzer.llm as llm_module
+
+        async def fake_call(client, user_prompt, settings):
+            if "CHUNK-0" in user_prompt:
+                await asyncio.sleep(0.03)  # finishes last
+                return json.dumps({"dimensions": [], "summary": "first-chunk-summary"})
+            await asyncio.sleep(0)  # chunk 1 finishes first
+            return json.dumps({"dimensions": [], "summary": "second-chunk-summary"})
+
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api03-not-a-test-key")
+        get_settings.cache_clear()
+        monkeypatch.setattr(llm_module, "_call_with_retry", fake_call)
+
+        diff = DiffSummary()
+        _, summary, _ = await analyze_diff(
+            diff_summary=diff,
+            diff_chunks=["CHUNK-0 content", "CHUNK-1 content"],
+            package="test",
+            ecosystem=Ecosystem.npm,
+            from_version="1.0.0",
+            to_version="1.0.1",
+        )
+
+        # Chunk 1 is last in *input* order and finishes first in *time* --
+        # the summary must still be chunk 1's, proving order-by-position.
+        assert summary == "second-chunk-summary"
+
+    async def test_concurrency_is_bounded_by_max_concurrent_llm_chunks(self, monkeypatch):
+        import asyncio
+
+        import chainwatch.analyzer.llm as llm_module
+
+        in_flight = 0
+        peak_in_flight = 0
+
+        async def fake_call(client, user_prompt, settings):
+            nonlocal in_flight, peak_in_flight
+            in_flight += 1
+            peak_in_flight = max(peak_in_flight, in_flight)
+            await asyncio.sleep(0.01)
+            in_flight -= 1
+            return json.dumps({"dimensions": [], "summary": "ok"})
+
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api03-not-a-test-key")
+        monkeypatch.setenv("CHAINWATCH_MAX_CONCURRENT_LLM_CHUNKS", "2")
+        get_settings.cache_clear()
+        monkeypatch.setattr(llm_module, "_call_with_retry", fake_call)
+
+        diff = DiffSummary()
+        chunks = [f"CHUNK-{i} content" for i in range(6)]
+        await analyze_diff(
+            diff_summary=diff,
+            diff_chunks=chunks,
+            package="test",
+            ecosystem=Ecosystem.npm,
+            from_version="1.0.0",
+            to_version="1.0.1",
+        )
+
+        assert peak_in_flight == 2

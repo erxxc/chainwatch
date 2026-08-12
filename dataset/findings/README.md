@@ -729,10 +729,24 @@ duration — but worth noting qualitatively from directly-observed runs this
 session: single-chunk diffs (most benign pairs, most malicious-corpus
 control pairs) completed in roughly 10–20 seconds end-to-end (fetch + diff +
 LLM + feeds). The `requests` pair — 10 chunks after chunking a ~5,900-line
-diff — took roughly 2.5 minutes, scaling with chunk count since chunks are
-sent to the LLM sequentially per `analyzer/llm.py`. A proper latency study
-(controlled runs, repeated trials, network variance isolated) is future
-work, not attempted here.
+diff — took roughly 2.5 minutes at the time this was measured, because
+every chunk was sent to the LLM strictly sequentially, one full round trip
+at a time.
+
+**That specific bottleneck no longer describes the current code.**
+`analyze_diff()` (`analyzer/llm.py`) now sends chunks with bounded
+concurrency (`settings.max_concurrent_llm_chunks`, default 4) rather than
+one at a time, and `scan_dependencies()` (`scanner.py`) does the same
+across dependencies (`settings.max_concurrent_scan_deps`, default 3) — a
+CI scan of a full lockfile no longer waits on every dependency's entire
+pipeline in turn. Both caps are deliberately bounded, not unlimited, for
+the same reason the original sequential design cited: firing everything
+at once risks tripping Anthropic API rate limits with no visible warning.
+The `requests`-pair figure above is now a historical data point about the
+pre-parallelisation implementation, not a current characterisation of
+`analyzer/llm.py`'s latency — a proper controlled re-measurement (repeated
+trials, network variance isolated) is still future work, more so now that
+there's a real "before" number to compare a re-measured "after" against.
 
 ## Recommendations arising from this data
 
@@ -966,6 +980,97 @@ work, not attempted here.
    `malicious/ctx/pre-pypi-fix-report-*.json`. See `malicious/ctx/
    FINDINGS.md` observations 3-4 and "The fix, applied to the incident
    that motivated it" for the full before/after.
+
+11. **✅ Implemented (2026-08-12). Rekor/Sigstore signing-identity checks now
+    cover PyPI, closing a gap `ctx`'s reconstruction had already surfaced
+    (recommendation #10) but left unaddressed at the time.** Before this,
+    `analyzer/feeds.py::_query_rekor` short-circuited to `no_data` for any
+    non-npm ecosystem with the message "PyPI PEP 740 support not
+    implemented" — a real capability gap, not a graceful degradation, since
+    PyPI has shipped its own Sigstore-based attestation system (PEP 740,
+    "Trusted Publishing") since 2024. The new PyPI path queries the
+    Integrity API (`GET pypi.org/integrity/{project}/{version}/{filename}/
+    provenance`) rather than npm's per-package attestations endpoint, and
+    reads the signing identity from the response's ready-made `publisher`
+    object (`kind`/`repository`/`workflow`/`environment`) instead of
+    parsing a Fulcio certificate's SAN — PyPI has already done that
+    extraction server-side, unlike npm's raw-bundle response. Comparing
+    `from_version`'s identity against `to_version`'s and flagging a mismatch
+    `suspicious` is otherwise identical to the npm path, and the two now
+    share that comparison logic in `_query_rekor` rather than duplicating
+    it. **Checked, not assumed, that this doesn't retroactively change any
+    committed report**: `_pypi_signing_identity`'s prerequisite is a
+    filename to check, which itself requires the release to have gone
+    through PyPI's Trusted Publishing flow; live-querying both this
+    corpus's PyPI incidents on 2026-08-12 confirmed neither would flip to a
+    `suspicious`/`clean` result under the new code — `requests`'s 2023
+    releases (`dataset/benign/requests/`) 404 on the Integrity API (both
+    predate the 2024 rollout), and `ctx`'s `0.1.2` (`dataset/malicious/ctx/`)
+    now returns an empty `urls` array from PyPI's own JSON API (no file left
+    to resolve a provenance filename from at all), so both still resolve to
+    `rekor: no_data` — just via "no attestation found" rather than "not
+    implemented." No corpus report was re-archived for this change; see
+    `malicious/ctx/FINDINGS.md`'s Rekor bullet for the specific note. The
+    practical effect of this fix is therefore forward-looking only: any
+    *future* PyPI incident reconstructed into this corpus (or any real scan
+    of a Trusted-Publishing-era PyPI package) now gets the same
+    maintainer-hijack signal npm packages already did — exactly the
+    detection layer that would need to exist to catch a PyPI-side
+    event-stream-shaped attack (stolen or reassigned publishing rights,
+    same package, new signer) via signature rather than inference alone.
+
+12. **✅ Implemented (2026-08-12). A fourth feed client — new-dependency
+    provenance — directly answers option (b) from `event-stream`'s own
+    cross-cutting observation #1 ("treat any new-dep-from-a-new-maintainer
+    as a HIGH-signal event regardless of the dep's contents").** The
+    event-stream/flatmap-stream incident (2018) is this corpus's clearest
+    case of a structural gap no per-dimension LLM tuning could close: the
+    malicious payload never touched event-stream's own source, so
+    analysing event-stream's diff — however well — could never surface it.
+    The entire attack was a one-line `package.json` addition pointing at an
+    obscure, single-maintainer, thinly-versioned package. `analyzer/
+    feeds.py::_query_new_dependency_provenance` now queries every
+    dependency `diff_summary.new_dependencies` reports as newly added
+    (its own registry project metadata, the same endpoint
+    `_resolve_github_repo` already uses) and flags it low-scrutiny if it
+    has <= 5 ever-published versions and, on npm, <= 1 maintainer — PyPI's
+    public JSON API has no maintainer-list equivalent, so the PyPI check is
+    version-count only, a known, documented weaker signal on that side.
+    Deliberately **not** implemented as option (a) (recursively fetching
+    and diffing every new dependency's own source) — that's a materially
+    bigger architectural change with unbounded transitive depth, whereas
+    this corpus already has an existing, separate proof that option (a)'s
+    payoff is real (`flatmap-stream 0.1.0 → 0.1.1`'s own reconstructed pair
+    scores HIGH once its content *is* what's analysed, recommendation #7's
+    predecessor work) — this heuristic is the cheap complement, not a
+    replacement, and is designed to be a weak amplifier (+5 to the score,
+    same tier as the Scorecard bonus) rather than a verdict, since most
+    single-maintainer/few-version packages are ordinary small utilities,
+    not attacks. Wired into `_apply_feed_modifiers` as
+    `new_dependency_low_scrutiny`; `run_all_feeds()` gained an optional
+    `new_dependencies` parameter and `run_diff_pipeline` now passes
+    `diff_summary.new_dependencies` through automatically. **Checked, not
+    assumed, both that it fires on the incident that motivated it and that
+    it discriminates real signal from noise**: live-queried against the
+    real npm registry on 2026-08-12 (a direct function call, not a saved
+    report), `flatmap-stream` resolves to 1 maintainer / 1 version (npm's
+    post-quarantine security placeholder — see the caveat in the client's
+    own docstring for why this reflects today's frozen state rather than
+    September 2018's) and correctly trips `suspicious`; `lodash`, checked
+    in the same call as a real-world negative control, currently also shows
+    a single maintainer but has 117 ever-published versions and does
+    *not* trip the rule — confirming the version-count-AND-maintainer-count
+    condition is doing real discriminating work, not just flagging every
+    single-maintainer package on the registry. This does not retroactively
+    change any committed report in this corpus: none of `event-stream`'s
+    three saved pairs carry `flatmap-stream` in `new_dependencies` (the one
+    diff that would have — `3.3.5 → 3.3.6` — was never recoverable, see
+    `malicious/event-stream/SOURCING.md` and FINDINGS.md's position table),
+    so like recommendation #11 this is a forward-looking fix: it changes
+    what a *future* scan of a currently-being-added dependency sees, not
+    any report already archived here. See `malicious/event-stream/
+    FINDINGS.md`'s cross-cutting observation #1 for the incident-specific
+    note.
 
 ## Reproducing this analysis
 

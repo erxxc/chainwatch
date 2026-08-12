@@ -9,6 +9,7 @@ that combination is already covered by the feeds and llm test suites.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Iterator
 
@@ -240,3 +241,93 @@ class TestScanDependencies:
         bad = next(e for e in entries if e.package == "does-not-exist")
         assert bad.report is None
         assert bad.error is not None
+
+    @pytest.mark.asyncio
+    async def test_results_preserve_input_order_even_when_later_dep_resolves_first(self):
+        """
+        scan_dependencies() promises "one ScanEntry per dependency, in the
+        same order given" -- this must hold under concurrency too, not just
+        happen to hold when everything runs sequentially. Makes the first
+        dependency in the input list artificially slower than the second so
+        their real completion order is reversed, then asserts the returned
+        list order still matches input order (asyncio.gather's contract,
+        not luck).
+        """
+        base_transport = _make_npm_backend({
+            "slow-pkg": {
+                "1.0.0": {"package.json": json.dumps({"name": "slow-pkg", "version": "1.0.0"})},
+                "1.0.1": {"package.json": json.dumps({"name": "slow-pkg", "version": "1.0.1"})},
+            },
+            "fast-pkg": {
+                "1.0.0": {"package.json": json.dumps({"name": "fast-pkg", "version": "1.0.0"})},
+                "1.0.1": {"package.json": json.dumps({"name": "fast-pkg", "version": "1.0.1"})},
+            },
+        })
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            if "slow-pkg" in request.url.path:
+                await asyncio.sleep(0.03)
+            return base_transport.handler(request)
+
+        deps = [
+            LockedDependency("slow-pkg", "1.0.1"),
+            LockedDependency("fast-pkg", "1.0.1"),
+        ]
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            entries = await scan_dependencies(client, Ecosystem.npm, deps, no_feeds=True)
+
+        assert [e.package for e in entries] == ["slow-pkg", "fast-pkg"]
+
+    @pytest.mark.asyncio
+    async def test_concurrency_is_bounded_by_max_concurrent_scan_deps(self, monkeypatch):
+        """
+        Counts concurrency at the *dependency* level (how many of the 6
+        dependencies are being scanned at once), not at the raw HTTP-request
+        level -- a single dependency's own pipeline legitimately issues more
+        than one HTTP call (registry metadata, from-tarball, to-tarball),
+        so request-level counting would conflate "one dependency doing
+        several things" with "several dependencies running at once".
+        find_previous_version() is called exactly once per dependency, right
+        at the start of each scan, making it the right seam to monkeypatch.
+        """
+        import chainwatch.scanner as scanner_module
+
+        monkeypatch.setenv("CHAINWATCH_MAX_CONCURRENT_SCAN_DEPS", "2")
+        get_settings.cache_clear()
+
+        in_flight = 0
+        peak_in_flight = 0
+        real_find_previous_version = scanner_module.find_previous_version
+
+        async def tracked_find_previous_version(client, ecosystem, package, current_version):
+            nonlocal in_flight, peak_in_flight
+            in_flight += 1
+            peak_in_flight = max(peak_in_flight, in_flight)
+            await asyncio.sleep(0.01)
+            try:
+                return await real_find_previous_version(client, ecosystem, package, current_version)
+            finally:
+                in_flight -= 1
+
+        monkeypatch.setattr(scanner_module, "find_previous_version", tracked_find_previous_version)
+
+        transport = _make_npm_backend({
+            f"pkg-{i}": {
+                "1.0.0": {"package.json": json.dumps({"name": f"pkg-{i}", "version": "1.0.0"})},
+                "1.0.1": {"package.json": json.dumps({"name": f"pkg-{i}", "version": "1.0.1"})},
+            }
+            for i in range(6)
+        })
+        deps = [LockedDependency(f"pkg-{i}", "1.0.1") for i in range(6)]
+
+        async with httpx.AsyncClient(transport=transport) as client:
+            entries = await scanner_module.scan_dependencies(
+                client, Ecosystem.npm, deps, no_feeds=True
+            )
+
+        assert len(entries) == 6
+        assert all(e.error is None for e in entries)
+        # Bounded at the dependency level (2) -- if the cap were not
+        # applied, all 6 would enter find_previous_version() together.
+        assert peak_in_flight == 2

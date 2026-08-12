@@ -24,6 +24,11 @@ Feed contribution:
   - A Rekor signing identity change adds +10 to the raw score (capped at 100)
   - Scorecard score < 4 adds +5 (poor hygiene amplifies other signals)
   - Scorecard score > 7 subtracts 5 (strong hygiene is a mild mitigant)
+  - A low-scrutiny newly-added dependency (new_deps: suspicious) adds +5 —
+    same weak-signal tier as the Scorecard bonus, not a floor. See
+    analyzer/feeds.py's new-dependency provenance client docstring for what
+    "low-scrutiny" means and why it's deliberately a mild amplifier rather
+    than a verdict.
 
   This separation keeps the LLM score as the primary signal and makes
   the feed contributions auditable — the final report shows both.
@@ -63,6 +68,7 @@ _MALICIOUS_FEED_FLOOR_SCORE = 55.0     # minimum score if any feed says maliciou
 _REKOR_IDENTITY_CHANGE_BONUS = 10.0   # added if signing identity changed
 _POOR_SCORECARD_BONUS = 5.0            # added if Scorecard < 4
 _GOOD_SCORECARD_PENALTY = -5.0         # subtracted if Scorecard > 7
+_NEW_DEPS_LOW_SCRUTINY_BONUS = 5.0     # added if a new dependency looks low-scrutiny
 
 # LLM dimension-floor modifier — same idea as the feed floor above, but
 # triggered by the LLM's own dimension scores rather than a threat feed.
@@ -96,7 +102,7 @@ def build_report(
         to_sha256:      SHA256 of the target tarball
         diff_summary:   Structured diff from the engine
         dimensions:     LLM-scored risk dimensions
-        feed_results:   Results from OSV, Rekor, Scorecard
+        feed_results:   Results from OSV, Rekor, Scorecard, new_deps
         llm_summary:    LLM free-text assessment
         llm_model:      Model string used for provenance
 
@@ -243,6 +249,15 @@ def _apply_feed_modifiers(
                 rule="rekor_identity_changed",
                 delta=_REKOR_IDENTITY_CHANGE_BONUS,
                 note="Sigstore signing identity differs from the previous version",
+            ))
+
+        if feed.source == "new_deps" and feed.status == FeedStatus.suspicious:
+            score += _NEW_DEPS_LOW_SCRUTINY_BONUS
+            modifiers.append(ScoreModifier(
+                source="new_deps",
+                rule="new_dependency_low_scrutiny",
+                delta=_NEW_DEPS_LOW_SCRUTINY_BONUS,
+                note=feed.details,
             ))
 
         if feed.source == "scorecard" and feed.scorecard_score is not None:

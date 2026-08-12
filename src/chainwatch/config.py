@@ -86,6 +86,33 @@ class Settings(BaseSettings):
         description="Max retry attempts on rate-limited or transient API failures.",
     )
 
+    max_concurrent_llm_chunks: int = Field(
+        default=4,
+        ge=1,
+        le=20,
+        description=(
+            "Max diff chunks analysed concurrently per package within a single "
+            "analyze_diff() call. Bounded (not unlimited) so a large diff's "
+            "chunk fan-out doesn't burst past Anthropic API rate limits; "
+            "_call_with_retry()'s exponential backoff absorbs whatever the cap "
+            "doesn't prevent. Set to 1 to fully serialise, matching the old "
+            "sequential behaviour."
+        ),
+    )
+
+    max_concurrent_scan_deps: int = Field(
+        default=3,
+        ge=1,
+        le=20,
+        description=(
+            "Max lockfile dependencies diffed concurrently during `chainwatch "
+            "scan`. Each unit of concurrency here is a full diff pipeline run "
+            "(registry fetch + diff + LLM + feeds), heavier than one LLM "
+            "chunk call, hence the more conservative default than "
+            "max_concurrent_llm_chunks. Set to 1 to fully serialise."
+        ),
+    )
+
     max_download_bytes: int = Field(
         default=100 * 1024 * 1024,
         ge=1 * 1024 * 1024,
@@ -142,6 +169,17 @@ class Settings(BaseSettings):
         description="OSV.dev API base URL.",
     )
 
+    pypi_integrity_api: str = Field(
+        default="https://pypi.org/integrity",
+        description=(
+            "PyPI Integrity API base URL — serves PEP 740 (Sigstore) "
+            "attestation bundles per-file at "
+            "{base}/{project}/{version}/{filename}/provenance. Separate from "
+            "pypi_registry (the JSON metadata API) because it's a distinct "
+            "PyPI service with its own path scheme."
+        ),
+    )
+
     rekor_api: str = Field(
         default="https://rekor.sigstore.dev",
         description="Rekor transparency log API base URL.",
@@ -154,7 +192,10 @@ class Settings(BaseSettings):
 
     # ── Validators ───────────────────────────────────────────────────────────
 
-    @field_validator("npm_registry", "pypi_registry", "osv_api", "rekor_api", "scorecard_api")
+    @field_validator(
+        "npm_registry", "pypi_registry", "osv_api", "pypi_integrity_api",
+        "rekor_api", "scorecard_api",
+    )
     @classmethod
     def url_must_not_have_trailing_slash(cls, v: str) -> str:
         return v.rstrip("/")

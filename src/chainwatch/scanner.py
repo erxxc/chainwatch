@@ -20,14 +20,29 @@ error, ...) must not abort the whole scan — the same graceful-degradation
 principle already used throughout the feed clients (``analyzer/feeds.py``)
 applies here: collect a ``ScanEntry`` with ``error`` set and move on to the
 next package.
+
+Concurrency: dependencies are diffed with bounded concurrency
+(``settings.max_concurrent_scan_deps``, default 3), not fully sequential
+and not fully parallel. An earlier version of this module ran strictly
+one dependency at a time specifically to avoid firing many LLM calls at
+once with no visible warning; that concern is real, but "one at a time"
+and "unbounded" were never the only two options. A small, fixed cap keeps
+the same predictability (a scan never fans out further than the cap,
+regardless of lockfile size) while still cutting wall-clock time roughly
+by that cap's factor — meaningful for the default ``--limit 25``, where
+strictly sequential scanning means every dependency's full pipeline
+(registry fetch + diff + LLM + feeds) waits on the previous one's,
+compounding on top of ``analyze_diff``'s own per-chunk latency.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 import httpx
 
+from chainwatch.config import get_settings
 from chainwatch.lockfile import LockedDependency
 from chainwatch.models import Ecosystem, ScanEntry
 from chainwatch.pipeline import run_diff_pipeline
@@ -63,6 +78,66 @@ async def find_previous_version(
     return history[index - 1]
 
 
+async def _scan_one(
+    client: httpx.AsyncClient,
+    ecosystem: Ecosystem,
+    dep: LockedDependency,
+    *,
+    no_feeds: bool,
+) -> ScanEntry:
+    """Diff a single dependency's locked version against its predecessor.
+
+    Isolated into its own function (rather than inlined in a loop body) so
+    scan_dependencies can run many of these concurrently via asyncio.gather
+    while each one's error handling stays exactly as self-contained as it
+    was in the old sequential for-loop -- one dependency's exception can't
+    leak into another's result either way.
+    """
+    log.info("scan: %s@%s", dep.name, dep.version)
+
+    try:
+        previous = await find_previous_version(client, ecosystem, dep.name, dep.version)
+    except Exception as exc:
+        log.warning("scan: could not fetch version history for %s: %s", dep.name, exc)
+        return ScanEntry(
+            package=dep.name,
+            to_version=dep.version,
+            error=f"Could not fetch version history: {exc}",
+        )
+
+    if previous is None:
+        return ScanEntry(
+            package=dep.name,
+            to_version=dep.version,
+            error=(
+                "No earlier published version to diff against "
+                "(first release, or version not found in registry history)"
+            ),
+        )
+
+    try:
+        report = await run_diff_pipeline(
+            client, ecosystem, dep.name, previous, dep.version, no_feeds,
+        )
+    except Exception as exc:
+        log.warning(
+            "scan: diff failed for %s %s→%s: %s", dep.name, previous, dep.version, exc
+        )
+        return ScanEntry(
+            package=dep.name,
+            from_version=previous,
+            to_version=dep.version,
+            error=str(exc),
+        )
+
+    return ScanEntry(
+        package=dep.name,
+        from_version=previous,
+        to_version=dep.version,
+        report=report,
+    )
+
+
 async def scan_dependencies(
     client: httpx.AsyncClient,
     ecosystem: Ecosystem,
@@ -73,12 +148,13 @@ async def scan_dependencies(
     """
     Diff every dependency's locked version against its immediate predecessor.
 
-    Runs sequentially, not concurrently. Each entry makes a real LLM call;
-    firing many at once risks tripping Anthropic API rate limits and
-    running up cost with no visible warning. A CI scan of a lockfile's
-    worth of dependencies taking a few minutes is an acceptable trade for
-    that predictability — see the module docstring for why this can't be
-    trivially parallelised away without that risk.
+    Runs with bounded concurrency (``settings.max_concurrent_scan_deps``,
+    default 3) — not fully sequential, not fully parallel. Firing every
+    dependency's LLM call at once would risk tripping Anthropic API rate
+    limits and running up cost with no visible warning; a fixed, small cap
+    keeps a scan's fan-out predictable regardless of lockfile size while
+    still meaningfully cutting wall-clock time for the common case. See
+    the module docstring for the full reasoning.
 
     Args:
         client:       Shared httpx.AsyncClient — reused across every
@@ -89,56 +165,16 @@ async def scan_dependencies(
         no_feeds:     Passed straight through to the diff pipeline
 
     Returns:
-        One ScanEntry per dependency, in the same order given.
+        One ScanEntry per dependency, in the same order given — preserved
+        under concurrency because asyncio.gather() returns results in
+        input order regardless of completion order, not the order tasks
+        happen to finish in.
     """
-    entries: list[ScanEntry] = []
+    settings = get_settings()
+    semaphore = asyncio.Semaphore(settings.max_concurrent_scan_deps)
 
-    for dep in dependencies:
-        log.info("scan: %s@%s", dep.name, dep.version)
+    async def _bounded(dep: LockedDependency) -> ScanEntry:
+        async with semaphore:
+            return await _scan_one(client, ecosystem, dep, no_feeds=no_feeds)
 
-        try:
-            previous = await find_previous_version(client, ecosystem, dep.name, dep.version)
-        except Exception as exc:
-            log.warning("scan: could not fetch version history for %s: %s", dep.name, exc)
-            entries.append(ScanEntry(
-                package=dep.name,
-                to_version=dep.version,
-                error=f"Could not fetch version history: {exc}",
-            ))
-            continue
-
-        if previous is None:
-            entries.append(ScanEntry(
-                package=dep.name,
-                to_version=dep.version,
-                error=(
-                    "No earlier published version to diff against "
-                    "(first release, or version not found in registry history)"
-                ),
-            ))
-            continue
-
-        try:
-            report = await run_diff_pipeline(
-                client, ecosystem, dep.name, previous, dep.version, no_feeds,
-            )
-        except Exception as exc:
-            log.warning(
-                "scan: diff failed for %s %s→%s: %s", dep.name, previous, dep.version, exc
-            )
-            entries.append(ScanEntry(
-                package=dep.name,
-                from_version=previous,
-                to_version=dep.version,
-                error=str(exc),
-            ))
-            continue
-
-        entries.append(ScanEntry(
-            package=dep.name,
-            from_version=previous,
-            to_version=dep.version,
-            report=report,
-        ))
-
-    return entries
+    return list(await asyncio.gather(*(_bounded(dep) for dep in dependencies)))

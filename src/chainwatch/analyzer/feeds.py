@@ -4,12 +4,12 @@ chainwatch.analyzer.feeds
 
 Async threat intelligence feed clients.
 
-Three feeds, three clients, one shared interface: each client is an
+Four feeds, four clients, one shared interface: each client is an
 ``async def`` function that takes an ``httpx.AsyncClient`` and package
 identifiers, and returns a ``FeedResult``.
 
 Architecture:
-  The CLI orchestrates all three feed clients concurrently using
+  The CLI orchestrates all four feed clients concurrently using
   ``asyncio.gather()``, running in parallel with the LLM call.  A feed
   failure returns ``FeedStatus.no_data`` — it never raises and never
   aborts the pipeline.  This is the "graceful degradation" requirement.
@@ -23,23 +23,48 @@ OSV client:
   - Other advisory IDs (GHSA-*, CVE-*) as FeedStatus.suspicious
 
 Rekor client:
-  - npm packages only. Reads the registry's Sigstore provenance-attestation
-    bundle — GET {npm_registry}/-/npm/v1/attestations/{package}@{version} —
-    and parses the Fulcio-issued signing certificate to recover the identity
-    that published the release (typically a GitHub Actions workflow ref).
-  - Compares the from_version identity against the to_version identity: a
-    changed identity is a maintainer-hijack / stolen-token signal, flagged
-    FeedStatus.suspicious. No attestation on either side (packages predating
-    npm provenance, or PyPI — PEP 740 support not implemented) = no_data.
-  - This reads the identity the certificate *asserts*; it does not perform
-    full Sigstore bundle verification (Rekor inclusion proof, Fulcio chain
-    trust, cert validity window). Treat it as a detection heuristic, not a
-    cryptographic guarantee.
+  - npm: reads the registry's Sigstore provenance-attestation bundle — GET
+    {npm_registry}/-/npm/v1/attestations/{package}@{version} — and parses
+    the Fulcio-issued signing certificate to recover the identity that
+    published the release (typically a GitHub Actions workflow ref).
+  - PyPI (PEP 740): reads the Integrity API's per-file attestation bundle —
+    GET {pypi_integrity_api}/{project}/{version}/{filename}/provenance —
+    and reads the identity straight off the bundle's ``publisher`` object
+    (kind/repository/workflow), which PyPI pre-extracts from the same kind
+    of Fulcio certificate npm's path parses by hand.
+  - Both sides compare the from_version identity against the to_version
+    identity: a changed identity is a maintainer-hijack / stolen-token
+    signal, flagged FeedStatus.suspicious. No attestation on either side
+    (packages predating provenance/Trusted Publishing, or a release
+    published via a classic API token) = no_data.
+  - This reads the identity the certificate/bundle *asserts*; it does not
+    perform full Sigstore bundle verification (Rekor inclusion proof,
+    Fulcio chain trust, cert validity window). Treat it as a detection
+    heuristic, not a cryptographic guarantee.
 
 Scorecard client:
   - GET api.securityscorecards.dev/projects/github.com/{owner}/{repo}
   - Requires mapping package name → GitHub repo via registry metadata
   - Extract: overall score and key checks
+
+New-dependency provenance client:
+  - Not keyed on the analysed package's own version history — keyed on
+    ``diff_summary.new_dependencies``, the dependencies the diff just
+    introduced. Motivated directly by event-stream/flatmap-stream (2018):
+    the malicious payload never touched event-stream's own source at all,
+    the whole attack was a one-line ``package.json`` addition pointing at
+    an obscure, single-maintainer, thinly-versioned package. No amount of
+    analysing event-stream's own diff would ever have surfaced that.
+  - For each newly-added dependency, GET its own registry project metadata
+    (same npm/PyPI endpoints ``_resolve_github_repo`` already uses) and
+    flag it as low-scrutiny if it has few ever-published versions and
+    (npm only — PyPI's public JSON API has no maintainer-list equivalent)
+    at most one maintainer.
+  - This is deliberately *not* "fetch and diff the new dependency's own
+    source" — that is a much larger architectural change (unbounded
+    transitive depth). It's a cheap structural proxy: a single-controller,
+    low-history package is inherently easier to compromise or plant a
+    backdoor in, independent of what the diff in front of the LLM says.
 """
 
 from __future__ import annotations
@@ -55,9 +80,16 @@ import httpx
 from cryptography import x509
 
 from chainwatch.config import get_settings
+from chainwatch.fetcher.pypi import fetch_release_filename
 from chainwatch.models import Ecosystem, FeedResult, FeedStatus
 
 log = logging.getLogger(__name__)
+
+# New-dependency provenance thresholds — defined as constants so they are
+# easy to cite and tune. Deliberately loose: this is a weak, speculative
+# signal (see _query_new_dependency_provenance's docstring), not a verdict.
+_LOW_SCRUTINY_MAX_VERSIONS = 5
+_LOW_SCRUTINY_MAX_MAINTAINERS = 1  # npm only
 
 
 # ── Orchestrator ──────────────────────────────────────────────────────────────
@@ -69,9 +101,10 @@ async def run_all_feeds(
     ecosystem: Ecosystem,
     from_version: str,
     to_version: str,
+    new_dependencies: list[str] | None = None,
 ) -> list[FeedResult]:
     """
-    Run all three feed clients concurrently and return their results.
+    Run all four feed clients concurrently and return their results.
 
     Uses ``asyncio.gather()`` with ``return_exceptions=True`` so a feed
     crash doesn't propagate — it becomes a ``no_data`` result.
@@ -83,19 +116,26 @@ async def run_all_feeds(
         from_version:       Baseline version (compared against to_version for
                              the Rekor signing-identity check)
         to_version:         Target version
+        new_dependencies:   Dependencies newly introduced by this diff (from
+                             ``diff_summary.new_dependencies``), fed to the
+                             new-dependency provenance check. Defaults to
+                             none, not unknown — callers that don't pass it
+                             get a fast, no-network ``clean`` result rather
+                             than a fabricated ``no_data``.
 
     Returns:
-        List of three FeedResult objects: [osv, rekor, scorecard]
+        List of four FeedResult objects: [osv, rekor, scorecard, new_deps]
     """
     results = await asyncio.gather(
         _query_osv(client, package, ecosystem, to_version),
         _query_rekor(client, package, ecosystem, from_version, to_version),
         _query_scorecard(client, package, ecosystem),
+        _query_new_dependency_provenance(client, ecosystem, new_dependencies or []),
         return_exceptions=True,
     )
 
     feed_results: list[FeedResult] = []
-    feed_names = ["osv", "rekor", "scorecard"]
+    feed_names = ["osv", "rekor", "scorecard", "new_deps"]
 
     for name, result in zip(feed_names, results, strict=True):
         if isinstance(result, BaseException):
@@ -195,45 +235,40 @@ async def _query_rekor(
     """
     Compare Sigstore signing identities between from_version and to_version.
 
-    npm-only for now: packages published with ``npm publish --provenance``
-    (npm 9.5+, 2023) carry a Sigstore bundle at the registry's attestations
-    endpoint. The bundle's Fulcio certificate records *who* published the
-    release — typically a GitHub Actions workflow ref (e.g.
+    npm: packages published with ``npm publish --provenance`` (npm 9.5+,
+    2023) carry a Sigstore bundle at the registry's attestations endpoint.
+    The bundle's Fulcio certificate records *who* published the release —
+    typically a GitHub Actions workflow ref (e.g.
     ``https://github.com/{owner}/{repo}/.github/workflows/release.yml@refs/heads/main``).
-    A release published from a different identity than its predecessor is a
-    maintainer-hijack / stolen-token signal — exactly the pattern behind the
-    event-stream and ua-parser-js incidents this tool's corpus is built on.
 
-    PyPI attestations (PEP 740) are served over the Simple API, not a JSON
-    endpoint, and are not implemented here — this returns ``no_data`` for
-    PyPI rather than guessing at an unimplemented protocol.
+    PyPI: releases published via Trusted Publishing (PEP 740, PyPI 2024+)
+    carry an equivalent Sigstore bundle at the Integrity API, keyed by the
+    release's filename rather than the release itself. PyPI pre-extracts
+    the signer's identity into a structured ``publisher`` object, so this
+    path reads that directly instead of parsing a certificate.
 
-    Packages that predate provenance (essentially anything published before
-    2023) will legitimately have no attestation on either side and report
-    ``no_data`` — that is a correct "we cannot tell" result, not a bug.
+    Either way, a release published from a different identity than its
+    predecessor is a maintainer-hijack / stolen-token signal — exactly the
+    pattern behind the event-stream and ua-parser-js incidents this tool's
+    corpus is built on.
+
+    Packages that predate provenance/Trusted Publishing (or are published
+    via a classic API token rather than OIDC) will legitimately have no
+    attestation on either side and report ``no_data`` — that is a correct
+    "we cannot tell" result, not a bug.
     """
-    if ecosystem != Ecosystem.npm:
-        return FeedResult(
-            source="rekor",
-            status=FeedStatus.no_data,
-            details=(
-                "Sigstore attestation lookup is npm-only "
-                "(PyPI PEP 740 support not implemented)."
-            ),
-        )
-
     log.debug("Rekor: comparing signing identity for %s %s → %s", package, from_version, to_version)
     settings = get_settings()
+    fetch_identity = (
+        _fetch_npm_signing_identity if ecosystem == Ecosystem.npm
+        else _fetch_pypi_signing_identity
+    )
 
     try:
-        from_identity, _ = await _fetch_npm_signing_identity(
-            client, settings, package, from_version
-        )
-        to_identity, to_url = await _fetch_npm_signing_identity(
-            client, settings, package, to_version
-        )
+        from_identity, _ = await fetch_identity(client, settings, package, from_version)
+        to_identity, to_url = await fetch_identity(client, settings, package, to_version)
     except Exception as exc:
-        log.warning("Rekor/npm attestation query failed: %s", exc)
+        log.warning("Rekor attestation query failed: %s", exc)
         return FeedResult(
             source="rekor",
             status=FeedStatus.no_data,
@@ -353,6 +388,98 @@ def _rekor_search_url(attestation: dict[str, Any]) -> str | None:
     """Build a human-viewable search.sigstore.dev link from the bundle's tlog entry."""
     try:
         log_index = attestation["bundle"]["verificationMaterial"]["tlogEntries"][0]["logIndex"]
+        return f"https://search.sigstore.dev/?logIndex={log_index}"
+    except (KeyError, IndexError, TypeError):
+        return None
+
+
+async def _fetch_pypi_signing_identity(
+    client: httpx.AsyncClient,
+    settings: Any,
+    package: str,
+    version: str,
+) -> tuple[str | None, str | None]:
+    """
+    Fetch and parse the Sigstore signing identity for one PyPI package version.
+
+    PyPI's Integrity API (PEP 740) serves attestation bundles per *file*,
+    not per release — GET
+    {pypi_integrity_api}/{project}/{version}/{filename}/provenance — so the
+    release's filename has to be resolved first via
+    ``fetch_release_filename()`` (same sdist-over-wheel preference as the
+    main fetch path, so the file whose provenance gets checked is the file
+    chainwatch would actually download and diff).
+
+    Unlike npm, the response carries a ready-made ``publisher`` object
+    (e.g. ``{"kind": "GitHub", "repository": "pypa/sampleproject",
+    "workflow": "release.yml", "environment": ""}``) describing the Trusted
+    Publisher that signed the release — PyPI has already pulled this out of
+    the Fulcio certificate's SAN for us, so there's no DER to parse here.
+
+    Returns (identity, human_url), both None if no attestation exists: no
+    file found for the version, no provenance recorded for that file, or
+    the release predates/bypasses Trusted Publishing (classic API-token
+    ``twine upload``).
+    """
+    filename = await fetch_release_filename(client, package, version)
+    if filename is None:
+        return None, None
+
+    url = (
+        f"{settings.pypi_integrity_api}/{quote(package, safe='')}/{version}/"
+        f"{quote(filename, safe='')}/provenance"
+    )
+    try:
+        resp = await _get_with_retry(client, url)
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            return None, None
+        raise
+
+    data: dict[str, Any] = resp.json()
+    bundles: list[dict[str, Any]] = data.get("attestation_bundles") or []
+
+    for bundle in bundles:
+        identity = _identity_from_publisher(bundle.get("publisher") or {})
+        if identity is None:
+            continue
+        human_url = _pypi_rekor_search_url(bundle) or (
+            f"https://pypi.org/project/{package}/{version}/#provenance"
+        )
+        return identity, human_url
+
+    return None, None
+
+
+def _identity_from_publisher(publisher: dict[str, Any]) -> str | None:
+    """
+    Build a comparable signing identity string from a PEP 740 attestation
+    bundle's ``publisher`` object.
+
+    Formatted as ``"{kind}:{repository}:{workflow}"`` (plus
+    ``:{environment}`` when the publisher declares one) — e.g.
+    ``"github:pypa/sampleproject:release.yml"``. Not a URL like npm's
+    identity string, just a stable, comparable one: the from/to check only
+    needs equality, not a dereferenceable link.
+    """
+    kind = publisher.get("kind")
+    repository = publisher.get("repository")
+    workflow = publisher.get("workflow")
+    if not kind or not repository or not workflow:
+        return None
+
+    identity = f"{kind.lower()}:{repository}:{workflow}"
+    environment = publisher.get("environment")
+    if environment:
+        identity += f":{environment}"
+    return identity
+
+
+def _pypi_rekor_search_url(bundle: dict[str, Any]) -> str | None:
+    """Build a human-viewable search.sigstore.dev link from the bundle's tlog entry."""
+    try:
+        entries = bundle["attestations"][0]["verification_material"]["transparency_entries"]
+        log_index = entries[0]["logIndex"]
         return f"https://search.sigstore.dev/?logIndex={log_index}"
     except (KeyError, IndexError, TypeError):
         return None
@@ -547,6 +674,153 @@ def _summarize_checks(checks: list[dict[str, Any]]) -> str:
             score = check.get("score", "?")
             parts.append(f"{name}={score}")
     return ", ".join(parts) if parts else "No key checks found."
+
+
+# ── New-dependency provenance client ────────────────────────────────────────
+
+
+async def _query_new_dependency_provenance(
+    client: httpx.AsyncClient,
+    ecosystem: Ecosystem,
+    new_dependencies: list[str],
+) -> FeedResult:
+    """
+    Flag newly-added dependencies published by a low-scrutiny publisher.
+
+    Motivated directly by event-stream/flatmap-stream (2018,
+    dataset/malicious/event-stream/): the malicious payload never touched
+    event-stream's own source — the entire attack was a one-line
+    ``package.json`` addition (``"flatmap-stream": "^0.1.1"``) pointing at
+    an obscure package with exactly one maintainer and a thin version
+    history. The ``dependency_changes`` LLM dimension sees that *a*
+    dependency was added, but has no way to judge whether *that dependency*
+    looks low-scrutiny from a one-line diff alone — the content that
+    mattered lived in a different package entirely.
+
+    Deliberately not "fetch and diff the new dependency's own source" — a
+    much bigger architectural change (unbounded transitive depth). This is
+    a cheap structural proxy instead: query each new dependency's own
+    registry project metadata (the same npm/PyPI endpoints
+    ``_resolve_github_repo`` already uses) and flag it low-scrutiny if it
+    has few ever-published versions (<=
+    ``_LOW_SCRUTINY_MAX_VERSIONS``) and, on npm, at most one maintainer
+    (<= ``_LOW_SCRUTINY_MAX_MAINTAINERS``) — PyPI's public JSON API has no
+    maintainer-list equivalent to npm's ``maintainers`` field (only
+    free-text ``author``/``maintainer`` strings), so the PyPI check is
+    version-count only, a weaker signal, documented rather than papered
+    over.
+
+    This is intentionally a *weak* signal (see the small aggregator bonus
+    it earns, same tier as Scorecard's) — most single-maintainer,
+    few-version packages are entirely legitimate small utilities, not
+    attacks. It's a mild amplifier layered on top of whatever the LLM and
+    other feeds already found, not a verdict on its own.
+
+    Caveat: this reads *current* registry state, not the state at the
+    moment the dependency was actually added. For a live scan of a
+    dependency someone is adding right now, that's exactly the data a human
+    reviewer would see. For retrospectively re-running an
+    already-discovered incident, it isn't: a confirmed-malicious package is
+    typically unpublished and replaced with npm's own single-maintainer
+    security placeholder, which happens to trip this same heuristic for an
+    unrelated reason. A live check today therefore doesn't validate "would
+    this have caught it at the time," only "does the post-quarantine
+    artifact still look suspicious." The tool's actual use case — scanning
+    a dependency as it's being added — doesn't have this problem.
+    """
+    if not new_dependencies:
+        return FeedResult(
+            source="new_deps",
+            status=FeedStatus.clean,
+            details="No new dependencies introduced in this diff.",
+        )
+
+    settings = get_settings()
+    lookups = await asyncio.gather(
+        *(
+            _fetch_dependency_provenance_stats(client, settings, ecosystem, name)
+            for name in new_dependencies
+        ),
+        return_exceptions=True,
+    )
+
+    flagged: list[str] = []
+    stats: dict[str, dict[str, int | None]] = {}
+
+    for name, result in zip(new_dependencies, lookups, strict=True):
+        if isinstance(result, BaseException):
+            log.debug("new_deps: could not resolve %s: %s", name, result)
+            continue
+        version_count, maintainer_count = result
+        stats[name] = {"version_count": version_count, "maintainer_count": maintainer_count}
+        low_versions = version_count <= _LOW_SCRUTINY_MAX_VERSIONS
+        low_maintainers = (
+            maintainer_count is None or maintainer_count <= _LOW_SCRUTINY_MAX_MAINTAINERS
+        )
+        if low_versions and low_maintainers:
+            flagged.append(name)
+
+    if not stats:
+        return FeedResult(
+            source="new_deps",
+            status=FeedStatus.no_data,
+            details=(
+                f"Could not resolve registry metadata for any of "
+                f"{len(new_dependencies)} new dependency/ies."
+            ),
+        )
+
+    if flagged:
+        return FeedResult(
+            source="new_deps",
+            status=FeedStatus.suspicious,
+            details=(
+                f"{len(flagged)}/{len(stats)} newly-added dependency/ies look "
+                f"low-scrutiny (<= {_LOW_SCRUTINY_MAX_MAINTAINERS} maintainer "
+                f"info, <= {_LOW_SCRUTINY_MAX_VERSIONS} ever-published "
+                f"versions): {', '.join(flagged)}."
+            ),
+            raw={"new_dependencies": stats},
+        )
+
+    return FeedResult(
+        source="new_deps",
+        status=FeedStatus.clean,
+        details=(
+            f"Checked {len(stats)} newly-added dependency/ies; none look "
+            "low-scrutiny by publisher/version-history."
+        ),
+        raw={"new_dependencies": stats},
+    )
+
+
+async def _fetch_dependency_provenance_stats(
+    client: httpx.AsyncClient,
+    settings: Any,
+    ecosystem: Ecosystem,
+    package: str,
+) -> tuple[int, int | None]:
+    """
+    Return (version_count, maintainer_count) for one package, read from its
+    registry's project-metadata endpoint (not the tarball fetcher — same
+    "make our own direct registry call" pattern _resolve_github_repo uses).
+
+    maintainer_count is always None for PyPI — see
+    _query_new_dependency_provenance's docstring for why.
+    """
+    if ecosystem == Ecosystem.npm:
+        url = f"{settings.npm_registry}/{quote(package, safe='@')}"
+        resp = await _get_with_retry(client, url)
+        data: dict[str, Any] = resp.json()
+        version_count = len(data.get("versions") or {})
+        maintainer_count = len(data.get("maintainers") or [])
+        return version_count, maintainer_count
+
+    url = f"{settings.pypi_registry}/{quote(package, safe='')}/json"
+    resp = await _get_with_retry(client, url)
+    data = resp.json()
+    version_count = len(data.get("releases") or {})
+    return version_count, None
 
 
 # ── Shared HTTP helpers ───────────────────────────────────────────────────────

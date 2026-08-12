@@ -18,8 +18,12 @@ from cryptography.hazmat.primitives.asymmetric import ec
 
 from chainwatch.analyzer.feeds import (
     _attestation_certificate_der,
+    _fetch_dependency_provenance_stats,
     _identity_from_certificate,
+    _identity_from_publisher,
     _parse_github_url,
+    _pypi_rekor_search_url,
+    _query_new_dependency_provenance,
     _query_osv,
     _query_rekor,
     _query_scorecard,
@@ -81,6 +85,50 @@ def _make_attestation_response(*, identity_uri: str, log_index: int = 12345) -> 
                 },
             }
         ]
+    }
+
+
+def _make_pypi_version_metadata(*, filename: str = "pkg-1.0.0.tar.gz") -> dict:
+    """Build a fake PyPI JSON API version response — just enough for _pick_download."""
+    return {
+        "urls": [
+            {
+                "packagetype": "sdist",
+                "url": f"https://files.pythonhosted.org/{filename}",
+                "filename": filename,
+            },
+        ]
+    }
+
+
+def _make_pypi_provenance_response(
+    *, repository: str, workflow: str = "release.yml", kind: str = "GitHub",
+    environment: str = "", log_index: int = 67890,
+) -> dict:
+    """Build a fake PyPI Integrity API provenance response (PEP 740 shape)."""
+    return {
+        "attestation_bundles": [
+            {
+                "attestations": [
+                    {
+                        "envelope": {"signature": "", "statement": ""},
+                        "verification_material": {
+                            "certificate": "",
+                            "transparency_entries": [{"logIndex": str(log_index)}],
+                        },
+                        "version": 1,
+                    }
+                ],
+                "publisher": {
+                    "kind": kind,
+                    "repository": repository,
+                    "workflow": workflow,
+                    "environment": environment,
+                    "claims": None,
+                },
+            }
+        ],
+        "version": 1,
     }
 
 
@@ -206,13 +254,6 @@ class TestRekor:
         assert result.signing_identity is not None
         assert result.signing_identity_changed is None
 
-    async def test_rekor_pypi_is_no_data_without_any_request(self):
-        """PyPI attestations (PEP 740) aren't implemented — must not guess or call npm's API."""
-        async with httpx.AsyncClient() as client:
-            result = await _query_rekor(client, "requests", Ecosystem.pypi, "2.31.0", "2.32.0")
-        assert result.status == FeedStatus.no_data
-        assert "npm-only" in result.details or "PyPI" in result.details
-
     @respx.mock
     async def test_rekor_no_data_on_non_404_http_error(self):
         """A 5xx from the attestations endpoint should degrade to no_data, not crash."""
@@ -221,6 +262,125 @@ class TestRekor:
             result = await _query_rekor(client, "lodash", Ecosystem.npm, "4.17.20", "4.17.21")
         assert result.status == FeedStatus.no_data
         assert "failed" in result.details.lower()
+
+
+# ── Rekor / PyPI (PEP 740) tests ────────────────────────────────────────────────
+
+
+class TestRekorPypi:
+    @respx.mock
+    async def test_pypi_no_data_when_neither_version_attested(self):
+        respx.get(url__regex=r"https://pypi\.org/pypi/requests/.*/json").respond(
+            json=_make_pypi_version_metadata()
+        )
+        respx.get(url__regex=r"https://pypi\.org/integrity/.*/provenance").respond(status_code=404)
+        async with httpx.AsyncClient() as client:
+            result = await _query_rekor(client, "requests", Ecosystem.pypi, "2.31.0", "2.32.0")
+        assert result.status == FeedStatus.no_data
+        assert result.signing_identity is None
+        assert result.signing_identity_changed is None
+
+    @respx.mock
+    async def test_pypi_clean_when_identity_unchanged(self):
+        body = _make_pypi_provenance_response(repository="psf/requests")
+        respx.get(url__regex=r"https://pypi\.org/pypi/requests/.*/json").respond(
+            json=_make_pypi_version_metadata()
+        )
+        respx.get(url__regex=r"https://pypi\.org/integrity/.*/provenance").respond(json=body)
+        async with httpx.AsyncClient() as client:
+            result = await _query_rekor(client, "requests", Ecosystem.pypi, "2.31.0", "2.32.0")
+        assert result.status == FeedStatus.clean
+        assert result.signing_identity == "github:psf/requests:release.yml"
+        assert result.signing_identity_changed is False
+
+    @respx.mock
+    async def test_pypi_suspicious_when_identity_changed(self):
+        respx.get(url__regex=r"https://pypi\.org/pypi/pkg/1\.0\.0/json").respond(
+            json=_make_pypi_version_metadata(filename="pkg-1.0.0.tar.gz")
+        )
+        respx.get(url__regex=r"https://pypi\.org/pypi/pkg/2\.0\.0/json").respond(
+            json=_make_pypi_version_metadata(filename="pkg-2.0.0.tar.gz")
+        )
+        respx.get("https://pypi.org/integrity/pkg/1.0.0/pkg-1.0.0.tar.gz/provenance").respond(
+            json=_make_pypi_provenance_response(repository="original-maintainer/pkg")
+        )
+        respx.get("https://pypi.org/integrity/pkg/2.0.0/pkg-2.0.0.tar.gz/provenance").respond(
+            json=_make_pypi_provenance_response(repository="attacker/pkg")
+        )
+        async with httpx.AsyncClient() as client:
+            result = await _query_rekor(client, "pkg", Ecosystem.pypi, "1.0.0", "2.0.0")
+        assert result.status == FeedStatus.suspicious
+        assert result.signing_identity_changed is True
+        assert "attacker" in result.signing_identity
+
+    @respx.mock
+    async def test_pypi_clean_with_unknown_changed_when_no_previous_attestation(self):
+        """to_version is attested but from_version predates Trusted Publishing."""
+        respx.get(url__regex=r"https://pypi\.org/pypi/pkg/1\.0\.0/json").respond(
+            json=_make_pypi_version_metadata(filename="pkg-1.0.0.tar.gz")
+        )
+        respx.get(url__regex=r"https://pypi\.org/pypi/pkg/2\.0\.0/json").respond(
+            json=_make_pypi_version_metadata(filename="pkg-2.0.0.tar.gz")
+        )
+        respx.get("https://pypi.org/integrity/pkg/1.0.0/pkg-1.0.0.tar.gz/provenance").respond(
+            status_code=404
+        )
+        respx.get("https://pypi.org/integrity/pkg/2.0.0/pkg-2.0.0.tar.gz/provenance").respond(
+            json=_make_pypi_provenance_response(repository="owner/pkg")
+        )
+        async with httpx.AsyncClient() as client:
+            result = await _query_rekor(client, "pkg", Ecosystem.pypi, "1.0.0", "2.0.0")
+        assert result.status == FeedStatus.clean
+        assert result.signing_identity is not None
+        assert result.signing_identity_changed is None
+
+    @respx.mock
+    async def test_pypi_no_data_when_version_has_no_files(self):
+        """A yanked/fileless release has no filename to build a provenance URL from."""
+        respx.get(url__regex=r"https://pypi\.org/pypi/pkg/.*/json").respond(json={"urls": []})
+        async with httpx.AsyncClient() as client:
+            result = await _query_rekor(client, "pkg", Ecosystem.pypi, "1.0.0", "2.0.0")
+        assert result.status == FeedStatus.no_data
+
+    @respx.mock
+    async def test_pypi_no_data_on_non_404_http_error(self):
+        """A 5xx from the Integrity API should degrade to no_data, not crash."""
+        respx.get(url__regex=r"https://pypi\.org/pypi/pkg/.*/json").respond(
+            json=_make_pypi_version_metadata()
+        )
+        respx.get(url__regex=r"https://pypi\.org/integrity/.*/provenance").respond(status_code=503)
+        async with httpx.AsyncClient() as client:
+            result = await _query_rekor(client, "pkg", Ecosystem.pypi, "1.0.0", "2.0.0")
+        assert result.status == FeedStatus.no_data
+        assert "failed" in result.details.lower()
+
+
+class TestIdentityFromPublisher:
+    def test_builds_identity_from_full_publisher(self):
+        publisher = {
+            "kind": "GitHub", "repository": "pypa/sampleproject",
+            "workflow": "release.yml", "environment": "", "claims": None,
+        }
+        assert _identity_from_publisher(publisher) == "github:pypa/sampleproject:release.yml"
+
+    def test_appends_environment_when_present(self):
+        publisher = {
+            "kind": "GitHub", "repository": "pypa/sampleproject",
+            "workflow": "release.yml", "environment": "pypi",
+        }
+        assert _identity_from_publisher(publisher) == "github:pypa/sampleproject:release.yml:pypi"
+
+    def test_none_when_required_fields_missing(self):
+        assert _identity_from_publisher({}) is None
+        assert _identity_from_publisher({"kind": "GitHub"}) is None
+
+    def test_pypi_rekor_search_url_builds_link(self):
+        bundle = _make_pypi_provenance_response(repository="owner/pkg")["attestation_bundles"][0]
+        url = _pypi_rekor_search_url(bundle)
+        assert url == "https://search.sigstore.dev/?logIndex=67890"
+
+    def test_pypi_rekor_search_url_none_when_malformed(self):
+        assert _pypi_rekor_search_url({}) is None
 
 
 # ── Sigstore identity-extraction helper tests ───────────────────────────────────
@@ -337,6 +497,105 @@ class TestScorecard:
         assert "Could not resolve" in result.details
 
 
+# ── New-dependency provenance tests ─────────────────────────────────────────
+
+
+class TestFetchDependencyProvenanceStats:
+    @respx.mock
+    async def test_npm_returns_version_and_maintainer_counts(self):
+        respx.get("https://registry.npmjs.org/flatmap-stream").respond(json={
+            "versions": {"0.1.0": {}, "0.1.1": {}},
+            "maintainers": [{"name": "attacker", "email": "a@example.com"}],
+        })
+        async with httpx.AsyncClient() as client:
+            versions, maintainers = await _fetch_dependency_provenance_stats(
+                client, get_settings(), Ecosystem.npm, "flatmap-stream"
+            )
+        assert versions == 2
+        assert maintainers == 1
+
+    @respx.mock
+    async def test_pypi_returns_version_count_and_none_maintainers(self):
+        respx.get("https://pypi.org/pypi/some-pkg/json").respond(json={
+            "releases": {"1.0.0": [], "1.0.1": []},
+        })
+        async with httpx.AsyncClient() as client:
+            versions, maintainers = await _fetch_dependency_provenance_stats(
+                client, get_settings(), Ecosystem.pypi, "some-pkg"
+            )
+        assert versions == 2
+        assert maintainers is None
+
+
+class TestQueryNewDependencyProvenance:
+    async def test_clean_without_any_request_when_no_new_dependencies(self):
+        async with httpx.AsyncClient() as client:
+            result = await _query_new_dependency_provenance(client, Ecosystem.npm, [])
+        assert result.status == FeedStatus.clean
+
+    @respx.mock
+    async def test_suspicious_when_single_maintainer_few_versions(self):
+        """The flatmap-stream shape: one maintainer, a thin version history."""
+        respx.get("https://registry.npmjs.org/flatmap-stream").respond(json={
+            "versions": {"0.1.0": {}, "0.1.1": {}},
+            "maintainers": [{"name": "attacker", "email": "a@example.com"}],
+        })
+        async with httpx.AsyncClient() as client:
+            result = await _query_new_dependency_provenance(
+                client, Ecosystem.npm, ["flatmap-stream"]
+            )
+        assert result.status == FeedStatus.suspicious
+        assert "flatmap-stream" in result.details
+
+    @respx.mock
+    async def test_clean_when_dependency_well_established(self):
+        respx.get("https://registry.npmjs.org/lodash").respond(json={
+            "versions": {f"4.{i}.0": {} for i in range(30)},
+            "maintainers": [
+                {"name": "jdalton", "email": "j@example.com"},
+                {"name": "mathias", "email": "m@example.com"},
+            ],
+        })
+        async with httpx.AsyncClient() as client:
+            result = await _query_new_dependency_provenance(client, Ecosystem.npm, ["lodash"])
+        assert result.status == FeedStatus.clean
+
+    @respx.mock
+    async def test_pypi_flags_on_version_count_alone(self):
+        respx.get("https://pypi.org/pypi/obscure-pkg/json").respond(json={
+            "releases": {"0.0.1": []},
+        })
+        async with httpx.AsyncClient() as client:
+            result = await _query_new_dependency_provenance(
+                client, Ecosystem.pypi, ["obscure-pkg"]
+            )
+        assert result.status == FeedStatus.suspicious
+
+    @respx.mock
+    async def test_no_data_when_no_dependency_resolves(self):
+        respx.get("https://registry.npmjs.org/ghost-pkg").respond(status_code=404)
+        async with httpx.AsyncClient() as client:
+            result = await _query_new_dependency_provenance(
+                client, Ecosystem.npm, ["ghost-pkg"]
+            )
+        assert result.status == FeedStatus.no_data
+
+    @respx.mock
+    async def test_partial_failure_still_evaluates_the_rest(self):
+        respx.get("https://registry.npmjs.org/ghost-pkg").respond(status_code=404)
+        respx.get("https://registry.npmjs.org/flatmap-stream").respond(json={
+            "versions": {"0.1.1": {}},
+            "maintainers": [{"name": "attacker", "email": "a@example.com"}],
+        })
+        async with httpx.AsyncClient() as client:
+            result = await _query_new_dependency_provenance(
+                client, Ecosystem.npm, ["ghost-pkg", "flatmap-stream"]
+            )
+        assert result.status == FeedStatus.suspicious
+        assert "flatmap-stream" in result.details
+        assert "ghost-pkg" not in result.details
+
+
 # ── GitHub URL parser tests ───────────────────────────────────────────────────
 
 
@@ -371,7 +630,7 @@ class TestParseGithubUrl:
 
 class TestRunAllFeeds:
     @respx.mock
-    async def test_run_all_feeds_returns_three_results(self):
+    async def test_run_all_feeds_returns_four_results(self):
         # Mock OSV
         respx.post("https://api.osv.dev/v1/query").respond(json={"vulns": []})
         # Mock Rekor (npm attestations lookup — neither version attested)
@@ -398,9 +657,14 @@ class TestRunAllFeeds:
                 from_version="4.17.20",
                 to_version="4.17.21",
             )
-        assert len(results) == 3
+        assert len(results) == 4
         sources = {r.source for r in results}
-        assert sources == {"osv", "rekor", "scorecard"}
+        assert sources == {"osv", "rekor", "scorecard", "new_deps"}
+        # No new_dependencies passed → new_deps short-circuits to clean,
+        # no HTTP call needed (nothing mocked for it above, so this also
+        # proves no unexpected request was made).
+        new_deps_result = next(r for r in results if r.source == "new_deps")
+        assert new_deps_result.status == FeedStatus.clean
 
     @respx.mock
     async def test_run_all_feeds_graceful_on_exception(self):
@@ -424,7 +688,33 @@ class TestRunAllFeeds:
                 from_version="1.0.0",
                 to_version="1.0.1",
             )
-        # Should still get 3 results, even with the OSV failure
-        assert len(results) == 3
+        # Should still get 4 results, even with the OSV failure
+        assert len(results) == 4
         osv_result = next(r for r in results if r.source == "osv")
         assert osv_result.status == FeedStatus.no_data
+
+    @respx.mock
+    async def test_run_all_feeds_passes_through_new_dependencies(self):
+        """new_dependencies, when given, actually reaches the new_deps feed."""
+        respx.post("https://api.osv.dev/v1/query").respond(json={"vulns": []})
+        respx.get(url__regex=r".*/-/npm/v1/attestations/.*").respond(status_code=404)
+        respx.get("https://registry.npmjs.org/event-stream").respond(
+            json={"name": "event-stream"}
+        )
+        respx.get("https://registry.npmjs.org/flatmap-stream").respond(json={
+            "versions": {"0.1.1": {}},
+            "maintainers": [{"name": "attacker", "email": "a@example.com"}],
+        })
+
+        async with httpx.AsyncClient() as client:
+            results = await run_all_feeds(
+                client=client,
+                package="event-stream",
+                ecosystem=Ecosystem.npm,
+                from_version="3.3.5",
+                to_version="3.3.6",
+                new_dependencies=["flatmap-stream"],
+            )
+        new_deps_result = next(r for r in results if r.source == "new_deps")
+        assert new_deps_result.status == FeedStatus.suspicious
+        assert "flatmap-stream" in new_deps_result.details

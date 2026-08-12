@@ -15,7 +15,8 @@ chainwatch is a research tool that combines semantic diff analysis (powered by C
                     ┌──────────────┐               │
                     │ Feed Clients │               │
                     │ OSV · Rekor  │───────────────┤
-                    │ · Scorecard  │               │
+                    │ Scorecard    │               │
+                    │ new_deps     │               │
                     └──────────────┘               ▼
                                           ┌──────────────────┐
                                           │  Risk Aggregator  │
@@ -29,7 +30,7 @@ chainwatch is a research tool that combines semantic diff analysis (powered by C
 2. **Diff Engine** — Computes structured diffs filtered to source files
 3. **Metadata Analyzer** — Surfaces dependency changes, install hooks, maintainer changes
 4. **LLM Risk Analyzer** — Claude scores 6 risk dimensions (0–10 each)
-5. **Feed Integrations** — OSV.dev, Sigstore/Rekor, OpenSSF Scorecard (parallel with LLM)
+5. **Feed Integrations** — OSV.dev, Sigstore/Rekor, OpenSSF Scorecard, new-dependency provenance (parallel with LLM)
 6. **Risk Aggregator** — Composite 0–100 score with severity bucket
 
 ### Risk Dimensions

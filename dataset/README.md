@@ -42,8 +42,8 @@ Every report validates against `chainwatch.models.RiskReport`. Key fields:
 | `risk_score` / `severity` | Composite 0–100 score and its bucket (`LOW`/`MEDIUM`/`HIGH`/`CRITICAL`). |
 | `llm_base_score` | The 0–100 score from the LLM dimensions **alone**, before any feed adjustment. |
 | `dimensions[]` | Per-dimension LLM scores (0–10) with `weight`, `reasoning`, and `confidence` (0–1). Six dimensions as of 2026-08-10 (`resource_exhaustion` added — see `findings/README.md` recommendation #1); reports generated before then have five, and both validate, since the schema only requires the stored weights to sum to 1.0, not a fixed dimension count. |
-| `score_modifiers[]` | Every adjustment applied to `llm_base_score`, feed-driven (`source` = `osv`/`rekor`/`scorecard`) or, as of 2026-08-10, LLM-dimension-driven (`source` = `llm`, rule `definitive_dimension_floor`) — as `{source, rule, delta, note}`. |
-| `feed_results[]` | Normalised OSV / Rekor / Scorecard results. |
+| `score_modifiers[]` | Every adjustment applied to `llm_base_score`, feed-driven (`source` = `osv`/`rekor`/`scorecard`/`new_deps`, the last as of 2026-08-12) or, as of 2026-08-10, LLM-dimension-driven (`source` = `llm`, rule `definitive_dimension_floor`) — as `{source, rule, delta, note}`. |
+| `feed_results[]` | Normalised OSV / Rekor / Scorecard / new-dependency-provenance results. Four as of 2026-08-12 (`new_deps` added — see `findings/README.md` recommendation #12); reports generated before then have three, and both validate for the same reason dimension count isn't fixed above. |
 | `diff_summary` | Structured diff: added/removed/modified files, dependency and hook changes, truncation flag. |
 | `from_version_sha256` / `to_version_sha256` | Integrity hashes of the analysed tarballs. |
 | `llm_model`, `timestamp` | Provenance. |
