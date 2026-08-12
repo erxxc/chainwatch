@@ -1,5 +1,7 @@
 # chainwatch
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21908505.svg)](https://doi.org/10.5281/zenodo.21908505)
+
 **LLM-assisted supply chain diff analyzer for detecting malicious package updates.**
 
 chainwatch is a research tool that combines semantic diff analysis (powered by Claude) with live threat intelligence feeds to detect novel supply chain attacks — covering the detection gap between attack publication and signature-based tool coverage.
@@ -195,6 +197,13 @@ This tool is the empirical foundation for a security research publication examin
 2. The time delta between attack publication and feed coverage (the "detection gap")
 3. False positive rates on benign packages with suspicious-looking patterns
 4. Comparison with signature-based classifiers on the same ground truth
+
+## Citation
+
+If you use this software or its accompanying ground-truth corpus, please cite it — see `CITATION.cff` for the machine-readable record (GitHub renders this automatically via the "Cite this repository" button).
+
+- **Concept DOI** (always resolves to the latest version): [10.5281/zenodo.21908505](https://doi.org/10.5281/zenodo.21908505)
+- **v0.1.0 DOI** (this exact release, for reproducibility): [10.5281/zenodo.21908506](https://doi.org/10.5281/zenodo.21908506)
 
 ## License
 
