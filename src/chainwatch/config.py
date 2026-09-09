@@ -143,6 +143,18 @@ class Settings(BaseSettings):
         description="Maximum source file bytes read into the diff engine.",
     )
 
+    max_split_parts_per_file: int = Field(
+        default=16,
+        ge=1,
+        le=200,
+        description=(
+            "With --split-large-files, the most parts (= separate LLM calls) one "
+            "oversized file diff may be split into before the remainder is "
+            "truncated. Bounds spend on a single minified bundle: at the default "
+            "8k-token chunk budget, 16 parts is roughly 500 KB of diff text."
+        ),
+    )
+
     allowed_archive_hosts: str | None = Field(
         default=None,
         description=(

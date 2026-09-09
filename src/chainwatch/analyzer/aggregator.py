@@ -176,12 +176,25 @@ def _build_caveats(diff_summary: DiffSummary) -> list[str]:
         )
 
     if diff_summary.truncated_files:
+        where = (
+            "after the --split-large-files part cap "
+            "(CHAINWATCH_MAX_SPLIT_PARTS_PER_FILE)"
+            if diff_summary.large_files_split
+            else "head-first at the per-chunk token budget"
+        )
         caveats.append(
             f"The diff for {len(diff_summary.truncated_files)} file(s) was cut "
-            f"head-first at the per-chunk token budget: "
-            f"{_file_list(diff_summary.truncated_files)}. The LLM never saw the "
-            "omitted tail, so dimension scores may underestimate anything located "
-            "there (minified bundles tend to put payloads at the end)."
+            f"{where}: {_file_list(diff_summary.truncated_files)}. The LLM never "
+            "saw the omitted tail, so dimension scores may underestimate anything "
+            "located there (minified bundles tend to put payloads at the end)."
+        )
+
+    if diff_summary.split_files:
+        caveats.append(
+            f"The diff for {len(diff_summary.split_files)} file(s) exceeded one chunk "
+            f"and was split into parts scored independently (--split-large-files): "
+            f"{_file_list(diff_summary.split_files)}. No single LLM call saw one of "
+            "these files whole, so a pattern spanning two parts can be missed."
         )
 
     if diff_summary.chunks_sent_to_llm > 1:

@@ -251,6 +251,8 @@ class TestRiskReport:
         ds = DiffSummary()
         assert ds.truncated_files == []
         assert ds.skipped_files == []
+        assert ds.large_files_split is False
+        assert ds.split_files == []
         assert ds.comments_stripped is False
         assert ds.comment_lines_stripped == 0
 
@@ -423,6 +425,8 @@ class TestAggregator:
             diff_truncated=True,
             truncated_files=["dist/bundle.min.js"],
             skipped_files=["vendor/huge.js"],
+            large_files_split=True,
+            split_files=["dist/bundle.min.js", "lib/big.js"],
             chunks_sent_to_llm=3,
             comments_stripped=True,
             comment_lines_stripped=7,
@@ -439,13 +443,23 @@ class TestAggregator:
             feed_results=_make_feed_results(), llm_summary="s", llm_model="m",
             timings=timings,
         )
-        assert len(report.caveats) == 4
+        assert len(report.caveats) == 5
         text = "\n".join(report.caveats)
         assert "vendor/huge.js" in text and "never shown" in text
-        assert "dist/bundle.min.js" in text and "head-first" in text
+        # Split mode was on, so the cut came from the part cap, not head-first.
+        assert "dist/bundle.min.js" in text and "part cap" in text
+        assert "head-first" not in text
+        assert "lib/big.js" in text and "split into parts" in text
         assert "3 chunks" in text
         assert "7 comment line(s)" in text and "--strip-comments" in text
         assert report.timings == timings
+
+    def test_truncation_caveat_names_head_first_cut_when_not_splitting(self):
+        from chainwatch.analyzer.aggregator import _build_caveats
+        ds = DiffSummary(diff_truncated=True, truncated_files=["dist/bundle.min.js"])
+        [caveat] = _build_caveats(ds)
+        assert "head-first" in caveat
+        assert "part cap" not in caveat
 
     def test_caveat_file_list_is_capped(self):
         from chainwatch.analyzer.aggregator import _build_caveats

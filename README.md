@@ -82,11 +82,17 @@ chainwatch diff npm lodash 4.17.20 4.17.21 --no-feeds
 # the diff, so the score reflects executable code only (recorded in the report)
 chainwatch diff npm lodash 4.17.20 4.17.21 --strip-comments
 
+# Send an oversized file diff (e.g. a minified bundle) to the LLM in parts
+# instead of cutting it head-first at the token budget. More LLM calls,
+# capped per file by CHAINWATCH_MAX_SPLIT_PARTS_PER_FILE (default 16)
+chainwatch diff npm lodash 4.17.20 4.17.21 --split-large-files
+
 # Scan a lockfile: diff every pinned dependency against its predecessor
 # ("was the bump that put this exact version in my lockfile itself
-# suspicious?"). Supports package-lock.json (npm) and requirements.txt
-# (PyPI, exact `==` pins only) — yarn.lock is not yet supported.
+# suspicious?"). Supports package-lock.json and yarn.lock (npm; classic v1
+# and Berry) and requirements.txt (PyPI, exact `==` pins only).
 chainwatch scan package-lock.json
+chainwatch scan yarn.lock
 chainwatch scan requirements.txt --threshold 50   # CI mode
 chainwatch scan package-lock.json --limit 0        # no cap (default: 25 deps)
 

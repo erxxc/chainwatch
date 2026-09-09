@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from chainwatch.diff.chunker import chunk_diff
+from chainwatch.diff.chunker import CHARS_PER_TOKEN, chunk_diff
 from chainwatch.diff.engine import compute_diff
 
 
@@ -527,6 +527,13 @@ class TestChunker:
         assert "omitted" in chunks[0]
         assert diff.truncated_files == ["big.js"]
 
+    def test_default_mode_records_split_off(self, simple_change):
+        a, b = simple_change
+        diff = compute_diff(a, b)
+        chunk_diff(diff, max_tokens_per_chunk=8_000)
+        assert diff.large_files_split is False
+        assert diff.split_files == []
+
     def test_stripped_comments_are_noted_in_the_preamble(self, simple_change):
         a, b = simple_change
         diff = compute_diff(a, b)
@@ -546,3 +553,87 @@ class TestChunker:
         diff = compute_diff(a, b)
         chunks = chunk_diff(diff, max_tokens_per_chunk=8_000)
         assert "axios" in chunks[0]
+
+
+
+# ── Chunker: --split-large-files ─────────────────────────────────────────────
+
+
+def _big_change(tmp_path: Path, lines: int = 200) -> tuple[Path, Path]:
+    """~6 KB of diff: several parts at a 500-token budget, under the 16-part cap."""
+    a = tmp_path / "a"
+    b = tmp_path / "b"
+    a.mkdir()
+    b.mkdir()
+    (a / "big.js").write_text("\n".join(f"var x{i} = {i};" for i in range(lines)))
+    (b / "big.js").write_text("\n".join(f"var x{i} = {i + 1};" for i in range(lines)))
+    return a, b
+
+
+class TestChunkerSplitLargeFiles:
+    def test_split_mode_keeps_the_whole_diff(self, tmp_path: Path):
+        a, b = _big_change(tmp_path)
+        diff = compute_diff(a, b)
+        chunks = chunk_diff(diff, max_tokens_per_chunk=500, split_large_files=True)
+
+        assert diff.large_files_split is True
+        assert diff.split_files == ["big.js"]
+        assert diff.truncated_files == []
+        assert diff.diff_truncated is False
+        assert len(chunks) > 1
+        assert diff.chunks_sent_to_llm == len(chunks)
+
+        joined = "\n".join(chunks)
+        # First and last changed lines both survive — nothing was cut.
+        assert "+var x0 = 1;" in joined
+        assert "+var x199 = 200;" in joined
+        assert "(part 1/" in chunks[0]
+        assert "counts are for the whole file" in chunks[0]
+
+    def test_every_chunk_stays_within_budget(self, tmp_path: Path):
+        a, b = _big_change(tmp_path)
+        diff = compute_diff(a, b)
+        chunks = chunk_diff(diff, max_tokens_per_chunk=500, split_large_files=True)
+        budget = 500 * CHARS_PER_TOKEN
+        assert all(len(chunk) <= budget for chunk in chunks)
+
+    def test_part_cap_truncates_the_remainder_and_says_so(self, tmp_path: Path):
+        a, b = _big_change(tmp_path)
+        diff = compute_diff(a, b)
+        chunks = chunk_diff(
+            diff, max_tokens_per_chunk=500, split_large_files=True, max_parts_per_file=2,
+        )
+        joined = "\n".join(chunks)
+        assert diff.split_files == ["big.js"]
+        assert diff.truncated_files == ["big.js"]
+        assert diff.diff_truncated is True
+        assert joined.count("(part ") == 2
+        assert "omitted" in joined
+        assert "CHAINWATCH_MAX_SPLIT_PARTS_PER_FILE" in joined
+        assert "+var x199 = 200;" not in joined
+
+    def test_single_giant_line_is_hard_split_without_loss(self, tmp_path: Path):
+        """A minified bundle is one enormous line; line-based splitting alone
+        would leave it whole and over budget."""
+        a = tmp_path / "a"
+        b = tmp_path / "b"
+        a.mkdir()
+        b.mkdir()
+        (a / "min.js").write_text("x\n")
+        (b / "min.js").write_text("Z" * 10_000 + "\n")
+        diff = compute_diff(a, b)
+        chunks = chunk_diff(diff, max_tokens_per_chunk=500, split_large_files=True)
+        budget = 500 * CHARS_PER_TOKEN
+        assert all(len(chunk) <= budget for chunk in chunks)
+        assert sum(chunk.count("Z") for chunk in chunks) == 10_000
+        assert diff.split_files == ["min.js"]
+        assert diff.truncated_files == []
+
+    def test_small_files_are_not_split(self, simple_change):
+        a, b = simple_change
+        diff = compute_diff(a, b)
+        chunks = chunk_diff(diff, max_tokens_per_chunk=8_000, split_large_files=True)
+        assert len(chunks) == 1
+        assert diff.large_files_split is True
+        assert diff.split_files == []
+        assert "(part " not in chunks[0]

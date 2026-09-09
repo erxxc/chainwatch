@@ -64,6 +64,7 @@ async def run_diff_pipeline(
     no_feeds: bool,
     *,
     strip_comments: bool = False,
+    split_large_files: bool = False,
 ) -> RiskReport:
     """
     Execute the full chainwatch pipeline for a single package diff.
@@ -95,6 +96,9 @@ async def run_diff_pipeline(
         strip_comments: If True, remove whole-line comments from the diff
                         before the LLM sees it (the narrative-leakage
                         control — see chainwatch.diff.preprocess)
+        split_large_files: If True, split an oversized file diff into parts
+                        across chunks instead of truncating it head-first
+                        (bounded by settings.max_split_parts_per_file)
 
     Returns:
         Fully assembled RiskReport, with per-stage ``timings`` recorded
@@ -132,7 +136,12 @@ async def run_diff_pipeline(
         diff_summary = engine.compute_diff(fetch_result.from_dir, fetch_result.to_dir)
         if strip_comments:
             preprocess.strip_comment_lines(diff_summary)
-        diff_chunks = chunker.chunk_diff(diff_summary, settings.max_tokens_per_chunk)
+        diff_chunks = chunker.chunk_diff(
+            diff_summary,
+            settings.max_tokens_per_chunk,
+            split_large_files=split_large_files,
+            max_parts_per_file=settings.max_split_parts_per_file,
+        )
         diff_seconds = time.perf_counter() - diff_started
 
         # ── Stage 3: Concurrent LLM + feeds ──────────────────────────────────

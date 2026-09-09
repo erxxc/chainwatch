@@ -362,6 +362,8 @@ def _emit_rich(report: RiskReport, *, output_file: Path | None) -> None:
         diff_parts.append("[dim](diff truncated — token budget)[/dim]")
     if ds.skipped_files:
         diff_parts.append(f"[dim]({len(ds.skipped_files)} file(s) skipped — too large)[/dim]")
+    if ds.split_files:
+        diff_parts.append(f"[dim]({len(ds.split_files)} file(s) split across chunks)[/dim]")
     if ds.comments_stripped:
         diff_parts.append(f"[dim](comments stripped: {ds.comment_lines_stripped} lines)[/dim]")
 

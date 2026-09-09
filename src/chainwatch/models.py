@@ -24,9 +24,9 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 # 0.2.0 (2026-07-27): llm_base_score, score_modifiers[], per-dimension confidence.
 # 0.3.0 (2026-09-09): timings, caveats[], and the diff-visibility fields on
-#   DiffSummary (truncated_files, skipped_files, comments_stripped,
-#   comment_lines_stripped). All additive with defaults — 0.2.0 and 0.1.0
-#   reports still validate against this schema.
+#   DiffSummary (truncated_files, skipped_files, large_files_split,
+#   split_files, comments_stripped, comment_lines_stripped). All additive
+#   with defaults — 0.2.0 and 0.1.0 reports still validate against this schema.
 SCHEMA_VERSION = "0.3.0"
 
 
@@ -293,6 +293,21 @@ class DiffSummary(BaseModel):
         description=(
             "Files never diffed at all because they exceed "
             "CHAINWATCH_MAX_DIFF_FILE_BYTES — the LLM saw only a placeholder notice"
+        ),
+    )
+    large_files_split: bool = Field(
+        default=False,
+        description=(
+            "True if --split-large-files was on: an oversized file diff is split "
+            "into parts sent as separate chunks instead of being cut head-first"
+        ),
+    )
+    split_files: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Files whose diff was split into parts across chunks "
+            "(--split-large-files). Nothing omitted unless the file also appears "
+            "in truncated_files, which means the per-file part cap was hit"
         ),
     )
     comments_stripped: bool = Field(

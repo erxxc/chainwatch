@@ -55,11 +55,35 @@ def _registry() -> MockNpmRegistry:
     return registry
 
 
-async def _run(**kwargs) -> RiskReport:
-    registry = _registry()
+def _big_registry(lines: int = 600) -> MockNpmRegistry:
+    """A package whose one changed file is far larger than a 1000-token chunk."""
+    registry = MockNpmRegistry()
+    registry.add(NpmFixtureVersion(
+        package="bigpkg",
+        version="1.0.0",
+        files={
+            "package.json": package_json("bigpkg", "1.0.0"),
+            "big.js": "\n".join(f"var x{i} = {i};" for i in range(lines)) + "\n",
+        },
+    ))
+    registry.add(NpmFixtureVersion(
+        package="bigpkg",
+        version="1.0.1",
+        files={
+            "package.json": package_json("bigpkg", "1.0.1"),
+            "big.js": "\n".join(f"var x{i} = {i + 1};" for i in range(lines)) + "\n",
+        },
+    ))
+    return registry
+
+
+async def _run(
+    registry: MockNpmRegistry | None = None, package: str = "pkg", **kwargs
+) -> RiskReport:
+    registry = registry or _registry()
     async with httpx.AsyncClient(transport=registry.transport()) as client:
         return await run_diff_pipeline(
-            client, Ecosystem.npm, "pkg", "1.0.0", "1.0.1", True, **kwargs
+            client, Ecosystem.npm, package, "1.0.0", "1.0.1", True, **kwargs
         )
 
 
@@ -105,3 +129,39 @@ class TestStripComments:
         assert "harvests" not in body
         assert "+module.exports = 'new';" in body
         assert any("--strip-comments" in caveat for caveat in report.caveats)
+
+
+
+class TestSplitLargeFiles:
+    @pytest.fixture(autouse=True)
+    def _small_chunk_budget(self, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+        # 1000 tokens (the settings minimum) = 4000 chars; big.js's diff is ~20 KB.
+        monkeypatch.setenv("CHAINWATCH_MAX_TOKENS_PER_CHUNK", "1000")
+        monkeypatch.setenv("CHAINWATCH_MAX_SPLIT_PARTS_PER_FILE", "3")
+        get_settings.cache_clear()
+        yield
+        get_settings.cache_clear()
+
+    @pytest.mark.asyncio
+    async def test_default_mode_truncates_head_first(self):
+        report = await _run(_big_registry(), "bigpkg")
+        ds = report.diff_summary
+        assert ds.large_files_split is False
+        assert ds.split_files == []
+        assert ds.truncated_files == ["big.js"]
+        assert ds.diff_truncated is True
+        assert any("head-first" in caveat for caveat in report.caveats)
+
+    @pytest.mark.asyncio
+    async def test_split_mode_sends_parts_up_to_the_configured_cap(self):
+        report = await _run(_big_registry(), "bigpkg", split_large_files=True)
+        ds = report.diff_summary
+        assert ds.large_files_split is True
+        assert ds.split_files == ["big.js"]
+        # ~20 KB of diff at 4000 chars per part needs more than the cap of 3,
+        # so the remainder is truncated — and the report says which rule cut it.
+        assert ds.truncated_files == ["big.js"]
+        assert ds.chunks_sent_to_llm == 3
+        text = "\n".join(report.caveats)
+        assert "split into parts" in text
+        assert "part cap" in text
