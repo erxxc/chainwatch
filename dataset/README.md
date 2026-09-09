@@ -2,7 +2,8 @@
 
 Ground-truth corpus of `chainwatch` risk reports, used to evaluate detection
 performance and false-positive behaviour. Each report is a full, self-contained
-JSON document (schema `0.2.0`) produced by the pipeline for a single
+JSON document (schema `0.2.0` for every report committed so far; the current
+code emits `0.3.0`, an additive superset) produced by the pipeline for a single
 version-to-version package diff.
 
 ## Layout
@@ -32,19 +33,24 @@ dataset/
     └── README.md              # precision/recall, detection gap, RQ1-4 synthesis
 ```
 
-## Report schema (0.2.0)
+## Report schema (0.3.0)
 
 Every report validates against `chainwatch.models.RiskReport`. Key fields:
 
 | Field | Meaning |
 |---|---|
-| `schema_version` | Report schema version. Bumped to `0.2.0` when the score-decomposition fields were added. |
+| `schema_version` | Report schema version. Bumped to `0.2.0` when the score-decomposition fields were added, and to `0.3.0` (2026-09-09) when `timings`, `caveats[]`, and the diff-visibility fields below were added. Every bump so far has been additive with defaults, so `0.1.0` and `0.2.0` reports still validate against the current schema. |
 | `risk_score` / `severity` | Composite 0–100 score and its bucket (`LOW`/`MEDIUM`/`HIGH`/`CRITICAL`). |
 | `llm_base_score` | The 0–100 score from the LLM dimensions **alone**, before any feed adjustment. |
 | `dimensions[]` | Per-dimension LLM scores (0–10) with `weight`, `reasoning`, and `confidence` (0–1). Six dimensions as of 2026-08-10 (`resource_exhaustion` added — see `findings/README.md` recommendation #1); reports generated before then have five, and both validate, since the schema only requires the stored weights to sum to 1.0, not a fixed dimension count. |
 | `score_modifiers[]` | Every adjustment applied to `llm_base_score`, feed-driven (`source` = `osv`/`rekor`/`scorecard`/`new_deps`, the last as of 2026-08-12) or, as of 2026-08-10, LLM-dimension-driven (`source` = `llm`, rule `definitive_dimension_floor`) — as `{source, rule, delta, note}`. |
 | `feed_results[]` | Normalised OSV / Rekor / Scorecard / new-dependency-provenance results. Four as of 2026-08-12 (`new_deps` added — see `findings/README.md` recommendation #12); reports generated before then have three, and both validate for the same reason dimension count isn't fixed above. |
 | `diff_summary` | Structured diff: added/removed/modified files, dependency and hook changes, truncation flag. |
+| `diff_summary.truncated_files` / `skipped_files` | Which files the LLM saw only the head of (cut at the per-chunk token budget) and which it never saw at all (over `CHAINWATCH_MAX_DIFF_FILE_BYTES`). `0.3.0`+; empty on older reports, which carried only the `diff_truncated` boolean — the gap the ua-parser-js and requests write-ups both flagged. |
+| `diff_summary.large_files_split` / `split_files` | Whether `--split-large-files` was on, and which files it split into parts sent as separate chunks instead of cutting head-first. A file in both `split_files` and `truncated_files` hit the per-file part cap (`CHAINWATCH_MAX_SPLIT_PARTS_PER_FILE`). Off by default so existing corpus numbers keep their meaning. `0.3.0`+. |
+| `diff_summary.comments_stripped` / `comment_lines_stripped` | Whether `--strip-comments` removed whole-line comments before analysis, and how many diff lines it removed. This is the narrative-leakage control from `findings/README.md` recommendation #8, turned into a one-flag rerun: same code, no prose. `0.3.0`+. |
+| `caveats[]` | Plain-language statements, built from `diff_summary` (never from LLM text), about evidence the LLM did not see or scored under a known limitation: skipped files, head-truncated files, multi-chunk max-aggregation, stripped comments. Empty when the whole diff was visible in one chunk. `0.3.0`+. |
+| `timings` | Per-stage wall-clock seconds (`fetch`, `diff`, `llm`, `feeds`, `analysis`, `total`) for the run that produced the report — observational, not a benchmark. `0.3.0`+; `null` on older reports and on anything re-rendered via `chainwatch report`. |
 | `from_version_sha256` / `to_version_sha256` | Integrity hashes of the analysed tarballs. |
 | `llm_model`, `timestamp` | Provenance. |
 
@@ -237,3 +243,10 @@ to MEDIUM (20–28.5 points) — direct evidence that descriptive prose
 embedded in a diff drives a measurable part of the score, independent of
 any real payload — see `findings/README.md` recommendation #8.
 Recommendation #7 itself is more than half-closed, but remains open.
+Recommendation #8's hand-built control became a tool flag on 2026-09-09
+(`--strip-comments`): run on the narrated `coa`/`rc` trees it reproduces
+the HIGH → MEDIUM flip and attributes 12.5–13.5 of the 20–28.5 points to
+the prose itself, with the rest coming from the model treating hidden
+file content as suspicious in its own right — see
+`malicious/coa-rc/FINDINGS.md`'s third-condition section and
+`findings/README.md` #8.

@@ -107,15 +107,20 @@ def compute_diff(from_dir: Path, to_dir: Path) -> DiffSummary:
 
     file_diffs: list[FileDiff] = []
     modified: list[str] = []
+    # Files we refused to diff (over CHAINWATCH_MAX_DIFF_FILE_BYTES). Named
+    # explicitly so the report — and the aggregator's caveats — can say the
+    # LLM never saw them, rather than burying that in a placeholder string.
+    skipped_files: list[str] = []
 
     for rel_path in common:
         from_path = from_dir / rel_path
         to_path = to_dir / rel_path
-        skipped = _oversized_diff(from_path, to_path, rel_path)
-        if skipped is not None:
+        oversized = _oversized_diff(from_path, to_path, rel_path)
+        if oversized is not None:
             if _sha256_file(from_path) != _sha256_file(to_path):
                 modified.append(rel_path)
-                file_diffs.append(skipped)
+                file_diffs.append(oversized)
+                skipped_files.append(rel_path)
             continue
 
         from_text = from_path.read_text(errors="replace")
@@ -131,6 +136,7 @@ def compute_diff(from_dir: Path, to_dir: Path) -> DiffSummary:
         to_path = to_dir / rel_path
         if _file_exceeds_diff_limit(to_path):
             file_diffs.append(_skipped_file_diff(to_path, rel_path, "added"))
+            skipped_files.append(rel_path)
             continue
 
         content = to_path.read_text(errors="replace")
@@ -156,6 +162,7 @@ def compute_diff(from_dir: Path, to_dir: Path) -> DiffSummary:
         files_modified=modified,
         file_diffs=file_diffs,
         total_diff_lines=total_lines,
+        skipped_files=skipped_files,
         **meta,
     )
 

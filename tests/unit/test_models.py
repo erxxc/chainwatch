@@ -205,7 +205,7 @@ class TestRiskReport:
 
     def test_schema_version_present(self):
         report = _make_report()
-        assert report.schema_version == "0.2.0"
+        assert report.schema_version == "0.3.0"
 
     def test_llm_base_score_and_modifiers_default(self):
         # A directly-constructed report carries the new fields with defaults.
@@ -221,6 +221,40 @@ class TestRiskReport:
         assert restored.llm_base_score == 12.5
         assert restored.score_modifiers[0].rule == "scorecard_good"
         assert restored.score_modifiers[0].delta == -5.0
+
+    def test_caveats_and_timings_default(self):
+        # Schema 0.3.0 additions are optional so 0.2.0 reports still validate.
+        report = _make_report()
+        assert report.caveats == []
+        assert report.timings is None
+
+    def test_timings_and_caveats_roundtrip(self):
+        from chainwatch.models import PipelineTimings
+        timings = PipelineTimings(
+            fetch_seconds=1.5, diff_seconds=0.2, llm_seconds=8.0,
+            feeds_seconds=1.0, analysis_seconds=8.1, total_seconds=9.9,
+        )
+        report = _make_report(timings=timings, caveats=["diff was cut"])
+        restored = RiskReport.model_validate_json(report.model_dump_json())
+        assert restored.timings == timings
+        assert restored.caveats == ["diff was cut"]
+
+    def test_negative_timing_rejected(self):
+        from chainwatch.models import PipelineTimings
+        with pytest.raises(Exception, match="total_seconds"):
+            PipelineTimings(
+                fetch_seconds=0.0, diff_seconds=0.0, llm_seconds=0.0,
+                feeds_seconds=0.0, analysis_seconds=0.0, total_seconds=-1.0,
+            )
+
+    def test_diff_summary_visibility_fields_default(self):
+        ds = DiffSummary()
+        assert ds.truncated_files == []
+        assert ds.skipped_files == []
+        assert ds.large_files_split is False
+        assert ds.split_files == []
+        assert ds.comments_stripped is False
+        assert ds.comment_lines_stripped == 0
 
     def test_json_serialisation_roundtrip(self):
         report = _make_report()
@@ -371,6 +405,69 @@ class TestAggregator:
         assert report.llm_base_score == pytest.approx(3.5)
         assert report.risk_score == pytest.approx(55.0)  # malicious floor
         assert [m.rule for m in report.score_modifiers] == ["malicious_floor"]
+
+    def test_build_report_has_no_caveats_for_fully_visible_diff(self):
+        from chainwatch.analyzer.aggregator import build_report
+        report = build_report(
+            package="p", ecosystem=Ecosystem.npm,
+            from_version="1", to_version="2",
+            from_sha256=None, to_sha256=None,
+            diff_summary=DiffSummary(), dimensions=_make_dimensions(),
+            feed_results=_make_feed_results(), llm_summary="s", llm_model="m",
+        )
+        assert report.caveats == []
+        assert report.timings is None
+
+    def test_build_report_caveats_name_what_the_llm_did_not_see(self):
+        from chainwatch.analyzer.aggregator import build_report
+        from chainwatch.models import PipelineTimings
+        ds = DiffSummary(
+            diff_truncated=True,
+            truncated_files=["dist/bundle.min.js"],
+            skipped_files=["vendor/huge.js"],
+            large_files_split=True,
+            split_files=["dist/bundle.min.js", "lib/big.js"],
+            chunks_sent_to_llm=3,
+            comments_stripped=True,
+            comment_lines_stripped=7,
+        )
+        timings = PipelineTimings(
+            fetch_seconds=1.0, diff_seconds=0.1, llm_seconds=2.0,
+            feeds_seconds=0.5, analysis_seconds=2.0, total_seconds=3.2,
+        )
+        report = build_report(
+            package="p", ecosystem=Ecosystem.npm,
+            from_version="1", to_version="2",
+            from_sha256=None, to_sha256=None,
+            diff_summary=ds, dimensions=_make_dimensions(),
+            feed_results=_make_feed_results(), llm_summary="s", llm_model="m",
+            timings=timings,
+        )
+        assert len(report.caveats) == 5
+        text = "\n".join(report.caveats)
+        assert "vendor/huge.js" in text and "never shown" in text
+        # Split mode was on, so the cut came from the part cap, not head-first.
+        assert "dist/bundle.min.js" in text and "part cap" in text
+        assert "head-first" not in text
+        assert "lib/big.js" in text and "split into parts" in text
+        assert "3 chunks" in text
+        assert "7 comment line(s)" in text and "--strip-comments" in text
+        assert report.timings == timings
+
+    def test_truncation_caveat_names_head_first_cut_when_not_splitting(self):
+        from chainwatch.analyzer.aggregator import _build_caveats
+        ds = DiffSummary(diff_truncated=True, truncated_files=["dist/bundle.min.js"])
+        [caveat] = _build_caveats(ds)
+        assert "head-first" in caveat
+        assert "part cap" not in caveat
+
+    def test_caveat_file_list_is_capped(self):
+        from chainwatch.analyzer.aggregator import _build_caveats
+        ds = DiffSummary(truncated_files=[f"f{i}.js" for i in range(8)])
+        [caveat] = _build_caveats(ds)
+        assert "and 3 more" in caveat
+        assert "f4.js" in caveat
+        assert "f7.js" not in caveat
 
     def test_build_report_colors_shaped_single_vector_attack(self):
         """End-to-end regression test for the colors incident.

@@ -108,6 +108,16 @@ def cli(ctx: click.Context, json_mode: bool, verbose: bool, output: Path | None)
               help="Skip threat feed lookups. Faster, offline-friendly.")
 @click.option("--threshold", type=int, default=None,
               help="Exit with code 1 if risk score exceeds this value (useful in CI).")
+@click.option("--strip-comments", is_flag=True, default=False,
+              help="Remove whole-line comments from the diff before the LLM sees it. "
+                   "Experimental control for narrative leakage — how much of a score "
+                   "comes from prose rather than code (dataset/findings/README.md "
+                   "recommendation #8). Recorded in the report.")
+@click.option("--split-large-files", is_flag=True, default=False,
+              help="Split a file diff larger than one chunk into parts sent as separate "
+                   "LLM calls, instead of cutting it head-first at the token budget. "
+                   "More calls (capped per file by CHAINWATCH_MAX_SPLIT_PARTS_PER_FILE); "
+                   "recorded in the report.")
 @click.pass_context
 def diff(
     ctx: click.Context,
@@ -117,6 +127,8 @@ def diff(
     to_version: str,
     no_feeds: bool,
     threshold: int | None,
+    strip_comments: bool,
+    split_large_files: bool,
 ) -> None:
     """
     Analyse the diff between two versions of a package.
@@ -126,6 +138,8 @@ def diff(
       chainwatch diff npm event-stream 3.3.4 3.3.5
       chainwatch diff pypi requests 2.31.0 2.32.0
       chainwatch diff npm lodash 4.17.20 4.17.21 --threshold 50
+      chainwatch diff npm lodash 4.17.20 4.17.21 --strip-comments
+      chainwatch diff npm lodash 4.17.20 4.17.21 --split-large-files
 
     EXIT CODES:
       0 — Analysis complete, score within threshold (or no threshold set)
@@ -138,7 +152,13 @@ def diff(
     eco = Ecosystem(ecosystem.lower())
 
     try:
-        report = asyncio.run(_run_single_diff(eco, package, from_version, to_version, no_feeds))
+        report = asyncio.run(
+            _run_single_diff(
+                eco, package, from_version, to_version, no_feeds,
+                strip_comments=strip_comments,
+                split_large_files=split_large_files,
+            )
+        )
     except Exception as exc:
         logging.getLogger(__name__).error("Pipeline failed: %s", exc, exc_info=True)
         from chainwatch.output import emit_error
@@ -169,6 +189,16 @@ def diff(
 @click.option("--limit", type=int, default=25, show_default=True,
               help="Maximum dependencies to scan — each one is a real registry "
                    "fetch + LLM call. 0 = no limit.")
+@click.option("--strip-comments", is_flag=True, default=False,
+              help="Remove whole-line comments from the diff before the LLM sees it. "
+                   "Experimental control for narrative leakage — how much of a score "
+                   "comes from prose rather than code (dataset/findings/README.md "
+                   "recommendation #8). Recorded in the report.")
+@click.option("--split-large-files", is_flag=True, default=False,
+              help="Split a file diff larger than one chunk into parts sent as separate "
+                   "LLM calls, instead of cutting it head-first at the token budget. "
+                   "More calls (capped per file by CHAINWATCH_MAX_SPLIT_PARTS_PER_FILE); "
+                   "recorded in the report.")
 @click.pass_context
 def scan(
     ctx: click.Context,
@@ -176,6 +206,8 @@ def scan(
     no_feeds: bool,
     threshold: int | None,
     limit: int,
+    strip_comments: bool,
+    split_large_files: bool,
 ) -> None:
     """
     Scan a lockfile: diff every pinned dependency against its predecessor.
@@ -187,12 +219,13 @@ def scan(
     own to diff against; the previous published version is the only one
     chainwatch can derive without a second lockfile to compare.
 
-    Supports package-lock.json (npm) and requirements.txt (PyPI, exact
-    `==` pins only). yarn.lock is not yet supported.
+    Supports package-lock.json and yarn.lock (npm; classic v1 and Berry)
+    and requirements.txt (PyPI, exact `==` pins only).
 
     \b
     Examples:
       chainwatch scan package-lock.json
+      chainwatch scan yarn.lock
       chainwatch scan requirements.txt --limit 0
       chainwatch scan package-lock.json --threshold 50 --no-feeds
 
@@ -228,7 +261,13 @@ def scan(
         dependencies = dependencies[:limit]
 
     log.info("scan: %d %s dependencies from %s", len(dependencies), ecosystem.value, lockfile)
-    entries = asyncio.run(_run_scan(ecosystem, dependencies, no_feeds))
+    entries = asyncio.run(
+        _run_scan(
+            ecosystem, dependencies, no_feeds,
+            strip_comments=strip_comments,
+            split_large_files=split_large_files,
+        )
+    )
     emit_scan_results(entries, json_mode=json_mode, output_file=output)
 
     if threshold is not None:
@@ -286,6 +325,9 @@ async def _run_single_diff(
     from_version: str,
     to_version: str,
     no_feeds: bool,
+    *,
+    strip_comments: bool = False,
+    split_large_files: bool = False,
 ) -> RiskReport:
     """
     Own a client for exactly one `diff` run and delegate to the shared pipeline.
@@ -298,7 +340,9 @@ async def _run_single_diff(
 
     async with build_http_client() as client:
         return await run_diff_pipeline(
-            client, ecosystem, package, from_version, to_version, no_feeds
+            client, ecosystem, package, from_version, to_version, no_feeds,
+            strip_comments=strip_comments,
+            split_large_files=split_large_files,
         )
 
 
@@ -306,10 +350,18 @@ async def _run_scan(
     ecosystem: Ecosystem,
     dependencies: list[LockedDependency],
     no_feeds: bool,
+    *,
+    strip_comments: bool = False,
+    split_large_files: bool = False,
 ) -> list[ScanEntry]:
     """Own one client for the whole scan, so every dependency shares its connection pool."""
     from chainwatch.pipeline import build_http_client
     from chainwatch.scanner import scan_dependencies
 
     async with build_http_client() as client:
-        return await scan_dependencies(client, ecosystem, dependencies, no_feeds=no_feeds)
+        return await scan_dependencies(
+            client, ecosystem, dependencies,
+            no_feeds=no_feeds,
+            strip_comments=strip_comments,
+            split_large_files=split_large_files,
+        )
