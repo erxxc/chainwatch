@@ -68,6 +68,31 @@ a genuinely benign diff out of LOW.
   low-risk rather than high-risk, which is the right outcome: patching a bug
   is not the same shape of event as introducing one.
 
+#### lodash, rerun 2026-09-09 — baseline reproduced, `--strip-comments` delta measured
+
+Two further live runs of the same pair (`claude-sonnet-4-6`, live feeds),
+kept as `experiment-rerun-4.17.20-to-4.17.21.json` and
+`experiment-strip-comments-4.17.20-to-4.17.21.json` — not `report-*`, so
+excluded from every corpus count; the 2026-08-07 report above remains the
+canonical one.
+
+| condition | LLM base | feed-adjusted | obfuscation | dependency_changes | resource_exhaustion |
+|---|---|---|---|---|---|
+| baseline rerun | 4.0 | 0.0 | 1.0 / 0.7 | 1.0 / 1.0 | 0.5 / 0.85 |
+| `--strip-comments` (47 comment lines removed) | 3.0 | 0.0 | 0.5 / 0.5 | 1.0 / 0.9 | 0.5 / 0.85 |
+
+The rerun landed on the same 4.0 base as the 2026-08-07 report, through
+the same two non-zero original dimensions at the same scores and
+confidences, plus a 0.5 on `resource_exhaustion` under the current
+six-dimension weights — a useful run-to-run stability point for this
+pair. Stripping the JSDoc and line comments that lodash's new helper
+modules carry moved the base by one point, on `obfuscation` alone. That is
+the benign-side counterpart to the 12.5–13.5 point drop the same flag
+produces on the `coa`/`rc` narrated placeholders
+(`malicious/coa-rc/FINDINGS.md`, third condition). The rerun also carries
+the corpus's first `timings` block: 18.8 s end to end, 17.8 s of it LLM
+time for three chunks.
+
 ### esbuild@0.27.4 → 0.27.5 — first live validation of the Rekor identity feature
 
 - **What changed.** 18 lines, all version-string literal bumps in

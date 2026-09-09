@@ -243,3 +243,10 @@ to MEDIUM (20–28.5 points) — direct evidence that descriptive prose
 embedded in a diff drives a measurable part of the score, independent of
 any real payload — see `findings/README.md` recommendation #8.
 Recommendation #7 itself is more than half-closed, but remains open.
+Recommendation #8's hand-built control became a tool flag on 2026-09-09
+(`--strip-comments`): run on the narrated `coa`/`rc` trees it reproduces
+the HIGH → MEDIUM flip and attributes 12.5–13.5 of the 20–28.5 points to
+the prose itself, with the rest coming from the model treating hidden
+file content as suspicious in its own right — see
+`malicious/coa-rc/FINDINGS.md`'s third-condition section and
+`findings/README.md` #8.

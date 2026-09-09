@@ -1,10 +1,11 @@
 # coa / rc — chainwatch findings
 
-**Not a canonical corpus entry — read `SOURCING.md` first.** All four
+**Not a canonical corpus entry — read `SOURCING.md` first.** All six
 reports here (`inconclusive-report-coa-2.0.2-to-2.0.3-PARTIAL.json`,
-`inconclusive-report-rc-1.2.8-to-1.2.9-PARTIAL.json`, and their
-`-SILENT-STUB` counterparts, added 2026-08-11 as a deliberate follow-up)
-are excluded from every corpus-wide precision/recall statistic in
+`inconclusive-report-rc-1.2.8-to-1.2.9-PARTIAL.json`, their
+`-SILENT-STUB` counterparts, added 2026-08-11 as a deliberate follow-up,
+and their `-STRIPPED` counterparts, added 2026-09-09 — see the last
+section) are excluded from every corpus-wide precision/recall statistic in
 `dataset/findings/README.md` by filename convention. This document exists
 because the *attempt* produced a genuinely useful, unexpected finding —
 not the one it was built to test — and a follow-up experiment then
@@ -185,3 +186,68 @@ of a real, defensible, lower-confidence structural signal that persists
 even with zero narration. See `dataset/findings/README.md`'s overfitting
 caveat for where this fits alongside the corpus's other open validity
 questions.
+
+## Third condition (2026-09-09): the same narrated files, comments stripped by the tool
+
+The two conditions above bracket the effect but differ in more than one
+way: the silent-stub trees hold genuinely empty files (the diff shows
+`+0 lines`), while the narrated trees hold 14- and 9-line files whose every
+line is a comment. `chainwatch diff --strip-comments` (added 2026-09-09;
+`chainwatch.diff.preprocess`) removes whole-line comments from the diff
+before the LLM sees it, which makes a third condition possible with no
+hand-built files at all: the *narrated* trees exactly as committed in
+`evidence/`, run through the real pipeline with the flag on. The LLM then
+sees the real preinstall hook, the two new filenames, headers reading
+`+14 lines` / `+9 lines`, and `(no diff content)` where the prose was — plus
+one preamble line stating that 23 comment lines were removed. Same real
+`from` tarballs, live feeds, one LLM call per pair (`claude-sonnet-4-6`).
+
+| pair | condition | risk | severity | llm_base_score | install_hooks | network_calls | obfuscation |
+|---|---|---|---|---|---|---|---|
+| `coa 2.0.2 → 2.0.3` | narrated placeholder | 56.0 | HIGH | 51.0 | 10.0 / 0.9 | 8.0 / 0.4 | 7.0 / 0.4 |
+| `coa 2.0.2 → 2.0.3` | **narrated, `--strip-comments`** | **43.5** | **MEDIUM** | **38.5** | 8.0 / 0.7 | 5.0 / 0.3 | 4.0 / 0.2 |
+| `coa 2.0.2 → 2.0.3` | silent stub | 36.0 | MEDIUM | 31.0 | 8.0 / 0.7 | 3.0 / 0.2 | 3.0 / 0.2 |
+| `rc 1.2.8 → 1.2.9` | narrated placeholder | 60.0 | HIGH | 55.0 | 10.0 / 0.9 | 9.0 / 0.4 | 8.0 / 0.4 |
+| `rc 1.2.8 → 1.2.9` | **narrated, `--strip-comments`** | **46.5** | **MEDIUM** | **41.5** | 8.0 / 0.8 | 5.0 / 0.3 | 4.0 / 0.2 |
+| `rc 1.2.8 → 1.2.9` | silent stub | 31.5 | MEDIUM | 26.5 | 8.0 / 0.7 | 2.0 / 0.2 | 2.0 / 0.2 |
+
+Reports: `inconclusive-report-coa-2.0.2-to-2.0.3-STRIPPED.json` and
+`inconclusive-report-rc-1.2.8-to-1.2.9-STRIPPED.json` — still excluded
+from every corpus count by filename, like the four before them.
+
+What it shows:
+
+- **The flag reproduces the bucket flip.** Removing the prose alone takes
+  both pairs from HIGH to MEDIUM — 12.5 points on `coa`, 13.5 on `rc` —
+  with `install_hooks` dropping from 10.0/0.9 to 8.0 and every inferred
+  dimension losing both score and confidence. Same direction as the
+  hand-built silent-stub comparison, now obtainable on any pair with one
+  flag instead of a rebuilt directory.
+- **It also separates two things the silent-stub condition conflated.**
+  The stripped scores sit 7.5 (`coa`) and 15.0 (`rc`) points *above* the
+  silent stubs. The model's reasoning explains the gap in its own words:
+  it reads "14 lines added, content not shown" as suspicious opacity —
+  *"This opacity itself is a concern"*, *"The absence of visible content
+  is itself suspicious"* — and scores `network_calls`/`obfuscation` at
+  5.0/4.0 on that basis, where genuinely empty files drew 2.0–3.0. So of
+  the 20–28.5 point narrated-vs-silent gap measured on 2026-08-11, the
+  prose accounts for 12.5–13.5 points and the model's reaction to hidden
+  content for the remaining 7.5–15.0. The second path is worth naming on
+  its own: it is leakage from *our* tooling's notice text (`(no diff
+  content)`, the line counts), not from anything an attacker wrote.
+- **The structural signal survives unchanged.** `install_hooks` lands at
+  8.0 in both non-narrated conditions with the same reasoning — a
+  preinstall hook plus compile scripts on a package with no build step —
+  consistent with the 2026-08-11 conclusion that zero narration produces
+  calibrated, not zero, suspicion.
+- **Still not evidence about `_apply_dimension_floor`.** No dimension
+  reaches the 9.0/0.9 trigger in the stripped condition, and both base
+  scores already clear 30, so the rule stays unexercised; the count of
+  out-of-corpus runs where it has fired remains zero.
+
+Caveats: every condition is a single run, and none has been repeated to
+measure run-to-run variance, so differences of a few points between
+conditions should not be over-read. And, as before, none of this
+separates "the model believes the prose" from "the model recognises a
+famous 2021 incident" — stripping removes the prose but not the package
+names.
