@@ -1,0 +1,161 @@
+{
+  "schema_version": "0.3.0",
+  "ecosystem": "npm",
+  "package": "coa",
+  "from_version": "2.0.2",
+  "to_version": "2.0.3",
+  "risk_score": 43.5,
+  "severity": "MEDIUM",
+  "llm_base_score": 38.5,
+  "dimensions": [
+    {
+      "name": "network_calls",
+      "label": "New or changed network calls",
+      "score": 5.0,
+      "weight": 0.2,
+      "reasoning": "New files compile.bat and compile.js were added, and a preinstall hook was introduced, but the actual diff content for these files is not shown (empty diff blocks). The combination of a preinstall script with new compile files is suspicious and could involve network calls, but we cannot confirm without seeing the content.",
+      "confidence": 0.3
+    },
+    {
+      "name": "obfuscation",
+      "label": "Obfuscation / encoding patterns (base64, eval, dynamic require)",
+      "score": 4.0,
+      "weight": 0.2,
+      "reasoning": "The diff content for both compile.bat and compile.js is hidden/empty in the provided diff. This opacity itself is a concern, as the 14 and 9 lines added respectively cannot be inspected for obfuscation patterns. Low confidence due to lack of visible content.",
+      "confidence": 0.2
+    },
+    {
+      "name": "install_hooks",
+      "label": "Postinstall / preinstall script additions or changes",
+      "score": 8.0,
+      "weight": 0.15,
+      "reasoning": "A new 'preinstall' hook was explicitly detected and flagged. The preinstall script was not present in version 2.0.2. Combined with the addition of compile.bat and compile.js, this represents a significant change: code will execute automatically during package installation. The actual content of these scripts is not visible in the diff, raising the risk score. The coa package (a command-line option parser) has no legitimate need for a preinstall compile step.",
+      "confidence": 0.7
+    },
+    {
+      "name": "env_conditional",
+      "label": "Conditional logic gated on env vars/platform/CI, or environment variables read/exfiltrated for credential theft",
+      "score": 3.0,
+      "weight": 0.15,
+      "reasoning": "Cannot assess environment variable access or conditional branching without seeing the content of compile.js or compile.bat. Score is elevated slightly given the suspicious preinstall hook context, but confidence is very low.",
+      "confidence": 0.2
+    },
+    {
+      "name": "dependency_changes",
+      "label": "Dependency graph changes (new transitive deps)",
+      "score": 2.0,
+      "weight": 0.1,
+      "reasoning": "A native addon (binding.gyp or .node file) was noted as added. This could introduce new native dependencies or compilation requirements. However, no explicit dependency graph changes are listed in the diff metadata.",
+      "confidence": 0.3
+    },
+    {
+      "name": "resource_exhaustion",
+      "label": "Denial-of-service / resource-exhaustion patterns (unbounded loops, recursion, unthrottled blocking calls)",
+      "score": 1.0,
+      "weight": 0.2,
+      "reasoning": "No evidence of resource exhaustion patterns can be confirmed as the file contents are not visible in the diff.",
+      "confidence": 0.1
+    }
+  ],
+  "feed_results": [
+    {
+      "source": "osv",
+      "status": "suspicious",
+      "details": "Found 1 advisory/ies: GHSA-73qr-pfmq-6rp8",
+      "url": "https://osv.dev/list?q=coa",
+      "advisory_ids": [
+        "GHSA-73qr-pfmq-6rp8"
+      ],
+      "signing_identity": null,
+      "signing_identity_changed": null,
+      "scorecard_score": null
+    },
+    {
+      "source": "rekor",
+      "status": "no_data",
+      "details": "No Sigstore provenance attestation found for coa@2.0.3.",
+      "url": null,
+      "advisory_ids": [],
+      "signing_identity": null,
+      "signing_identity_changed": null,
+      "scorecard_score": null
+    },
+    {
+      "source": "scorecard",
+      "status": "suspicious",
+      "details": "Score: 2.5/10. Code-Review=3, Maintained=0, Signed-Releases=-1, Branch-Protection=0",
+      "url": "https://scorecard.dev/viewer/?uri=github.com/veged/coa",
+      "advisory_ids": [],
+      "signing_identity": null,
+      "signing_identity_changed": null,
+      "scorecard_score": 2.5
+    },
+    {
+      "source": "new_deps",
+      "status": "clean",
+      "details": "No new dependencies introduced in this diff.",
+      "url": null,
+      "advisory_ids": [],
+      "signing_identity": null,
+      "signing_identity_changed": null,
+      "scorecard_score": null
+    }
+  ],
+  "score_modifiers": [
+    {
+      "source": "scorecard",
+      "rule": "scorecard_poor",
+      "delta": 5.0,
+      "note": "Weak OpenSSF Scorecard (2.5/10) amplifies risk"
+    }
+  ],
+  "caveats": [
+    "23 comment line(s) were stripped from the diff before LLM analysis (--strip-comments); the LLM scored executable code only, so prose-driven signal is deliberately absent."
+  ],
+  "diff_summary": {
+    "files_added": [
+      "compile.bat",
+      "compile.js"
+    ],
+    "files_removed": [],
+    "files_modified": [],
+    "file_diffs": [
+      {
+        "path": "compile.bat",
+        "change_type": "added",
+        "lines_added": 9,
+        "lines_removed": 0,
+        "unified_diff": ""
+      },
+      {
+        "path": "compile.js",
+        "change_type": "added",
+        "lines_added": 14,
+        "lines_removed": 0,
+        "unified_diff": ""
+      }
+    ],
+    "new_dependencies": [],
+    "removed_dependencies": [],
+    "new_install_hooks": [
+      "preinstall"
+    ],
+    "maintainer_changed": false,
+    "native_addons_added": true,
+    "total_diff_lines": 23,
+    "chunks_sent_to_llm": 1,
+    "diff_truncated": false,
+    "truncated_files": [],
+    "skipped_files": [],
+    "large_files_split": false,
+    "split_files": [],
+    "comments_stripped": true,
+    "comment_lines_stripped": 23
+  },
+  "llm_model": "claude-sonnet-4-6",
+  "llm_summary": "The 2.0.2 \u2192 2.0.3 update of the 'coa' npm package introduces two new files (compile.bat and compile.js) and a new preinstall hook, which are highly anomalous for a command-line option parsing library that has no legitimate need for compilation steps. The actual content of these new files is not shown in the diff, preventing full analysis, but the pattern \u2014 preinstall hook + new script files + native addon indicator \u2014 is a well-known vector for supply chain attacks (notably, the coa package was previously compromised in a similar manner in late 2021). This update should be treated as highly suspicious and the package should not be installed until the preinstall script contents are reviewed and verified.",
+  "timestamp": "2026-09-09T17:46:57.173185Z",
+  "from_version_sha256": "783d74d006231c224dce24c627122bb7fb0f04f9074c31b302a5b4246aa68707",
+  "to_version_sha256": null,
+  "timings": null
+}

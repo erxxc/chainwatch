@@ -331,3 +331,23 @@ class TestScanDependencies:
         # Bounded at the dependency level (2) -- if the cap were not
         # applied, all 6 would enter find_previous_version() together.
         assert peak_in_flight == 2
+
+
+@pytest.mark.asyncio
+async def test_scan_passes_strip_comments_through_to_the_pipeline():
+    transport = _make_npm_backend({
+        "commented": {
+            "1.0.0": {"index.js": "module.exports = 1;\n"},
+            "1.0.1": {"index.js": "// prose describing an attack\nmodule.exports = 2;\n"},
+        },
+    })
+    deps = [LockedDependency("commented", "1.0.1")]
+
+    async with httpx.AsyncClient(transport=transport) as client:
+        entries = await scan_dependencies(
+            client, Ecosystem.npm, deps, no_feeds=True, strip_comments=True,
+        )
+
+    assert entries[0].report is not None
+    assert entries[0].report.diff_summary.comments_stripped is True
+    assert entries[0].report.diff_summary.comment_lines_stripped == 1

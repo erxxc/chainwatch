@@ -142,6 +142,44 @@ class TestSmoke:
         data = json.loads(result.output.strip())
         assert data["ecosystem"] == "pypi"
 
+    def test_strip_comments_flag_is_recorded_in_the_report(self):
+        """--strip-comments must be visible in the report, not silent."""
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "--json", "diff", "npm", "lodash", "4.17.20", "4.17.21",
+                "--no-feeds", "--strip-comments",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output.strip())
+        assert data["diff_summary"]["comments_stripped"] is True
+        # lodash 4.17.21 added two JSDoc-commented helper modules.
+        assert data["diff_summary"]["comment_lines_stripped"] > 0
+        assert any("strip-comments" in caveat for caveat in data["caveats"])
+        assert data["timings"]["total_seconds"] >= 0
+
+    def test_split_large_files_flag_sends_the_minified_bundle_in_parts(self):
+        """lodash.min.js's diff is far larger than one chunk: by default it is
+        cut head-first; with --split-large-files it is split, not cut."""
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "--json", "diff", "npm", "lodash", "4.17.20", "4.17.21",
+                "--no-feeds", "--split-large-files",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output.strip())
+        ds = data["diff_summary"]
+        assert ds["large_files_split"] is True
+        assert "lodash.min.js" in ds["split_files"]
+        assert ds["truncated_files"] == []
+        assert ds["diff_truncated"] is False
+        assert any("split into parts" in caveat for caveat in data["caveats"])
+
     def test_json_mode_stdout_is_pure_json_in_a_real_process(self):
         """
         --json stdout must contain *only* the report — no log lines.
@@ -233,9 +271,29 @@ class TestScanSubcommand:
         assert "lodash" in result.output
         assert "2 dependencies scanned" in result.output
 
-    def test_scan_invalid_lockfile_exits_2(self, tmp_path):
+    def test_scan_yarn_lock_produces_valid_ndjson(self, tmp_path):
         lockfile = tmp_path / "yarn.lock"
-        lockfile.write_text("# yarn lockfile v1\n")
+        lockfile.write_text(
+            "# yarn lockfile v1\n\n\n"
+            "lodash@^4.17.20:\n"
+            '  version "4.17.21"\n'
+            '  resolved "https://registry.yarnpkg.com/lodash/-/lodash-4.17.21.tgz#679591c5"\n'
+            "  integrity sha512-placeholder==\n"
+        )
+        result = CliRunner().invoke(
+            cli, ["--json", "scan", str(lockfile), "--no-feeds"]
+        )
+        assert result.exit_code == 0, result.output
+        lines = [line for line in result.stdout.strip().splitlines() if line]
+        assert len(lines) == 1
+        data = json.loads(lines[0])
+        assert data["package"] == "lodash"
+        assert data["to_version"] == "4.17.21"
+        assert data["report"] is not None
+
+    def test_scan_invalid_lockfile_exits_2(self, tmp_path):
+        lockfile = tmp_path / "Gemfile.lock"
+        lockfile.write_text("GEM\n  remote: https://rubygems.org/\n")
         result = CliRunner().invoke(cli, ["scan", str(lockfile)])
         assert result.exit_code == 2
 

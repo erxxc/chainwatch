@@ -14,11 +14,13 @@ Supported today:
   - ``requirements.txt`` — exact pins only (``name==1.2.3``). Range
     specifiers (``>=``, ``~=``, ...) don't name a single concrete version
     to diff against and are skipped, not guessed at.
-
-Not yet supported: ``yarn.lock`` (a bespoke, non-JSON format — a real
-parser is a separate, larger effort, not something worth guessing at with
-regexes). Detected and rejected with a clear error rather than silently
-producing wrong or partial results.
+  - ``yarn.lock`` — both the classic v1 format (``# yarn lockfile v1``,
+    ``version "1.2.3"``) and Yarn Berry's YAML-flavoured format (v2+,
+    ``__metadata:`` block, ``version: 1.2.3``). Only registry packages
+    are returned: workspace, file/link/portal, patch, git, and URL
+    specifiers have no registry predecessor to diff against and are
+    skipped. Berry's ``alias@npm:real-name@range`` form resolves to the
+    real package name, since that is what the registry serves.
 """
 
 from __future__ import annotations
@@ -48,8 +50,8 @@ def parse_lockfile(path: Path) -> tuple[Ecosystem, list[LockedDependency]]:
     sorted by name for deterministic ``--limit`` truncation downstream.
 
     Raises:
-        ValueError: Unrecognised filename, unsupported format (``yarn.lock``),
-                    or content that doesn't parse as the expected format.
+        ValueError: Unrecognised filename, or content that doesn't parse
+                    as the expected format.
     """
     name = path.name.lower()
     text = path.read_text(encoding="utf-8")
@@ -58,19 +60,15 @@ def parse_lockfile(path: Path) -> tuple[Ecosystem, list[LockedDependency]]:
         deps = _parse_npm_lockfile(text)
         return Ecosystem.npm, deps
     if name == "yarn.lock":
-        raise ValueError(
-            "yarn.lock is not yet supported (it's a bespoke, non-JSON format — "
-            "a real parser is future work, not implemented here). "
-            "Use package-lock.json instead, or run `chainwatch diff` on "
-            "individual packages."
-        )
+        deps = _parse_yarn_lockfile(text)
+        return Ecosystem.npm, deps
     if name.startswith("requirements") and name.endswith(".txt"):
         deps = _parse_requirements_txt(text)
         return Ecosystem.pypi, deps
 
     raise ValueError(
         f"Unrecognised lockfile: {path.name!r}. "
-        "Supported: package-lock.json, requirements*.txt."
+        "Supported: package-lock.json, yarn.lock, requirements*.txt."
     )
 
 
@@ -143,6 +141,106 @@ def _walk_v1_dependencies(dependencies: dict[str, Any]) -> list[LockedDependency
         if isinstance(nested, dict):
             result.extend(_walk_v1_dependencies(nested))
     return result
+
+
+# ── npm: yarn.lock (classic v1 and Berry) ───────────────────────────────────────
+
+# Specifier ranges that don't point at a registry package. Anything the
+# registry can't serve has no "version published immediately before" to
+# diff against, so it is skipped rather than guessed at.
+_YARN_NON_REGISTRY_PREFIXES: tuple[str, ...] = (
+    "workspace:", "file:", "link:", "portal:", "patch:", "exec:",
+    "git", "github:", "gitlab:", "bitbucket:", "http://", "https://",
+)
+
+# A locked version starts with a digit (1.2.3, 0.0.0-development, 2.0.0-rc.1).
+# Ranges (^1.2.3, ~1.2, *) don't — which is how a *dependency* named
+# "version" listed under an entry's `dependencies:` block is told apart
+# from the entry's own `version` field even if indentation were ambiguous.
+_YARN_VERSION_VALUE_RE = re.compile(r"^\d")
+
+
+def _parse_yarn_lockfile(text: str) -> list[LockedDependency]:
+    """
+    Parse yarn.lock into (name, version) pairs.
+
+    Both formats share the shape this parser relies on: a top-level entry
+    starts at column 0 with one or more comma-separated ``name@range``
+    specifiers ending in ``:``, and its body (indented by exactly two
+    spaces) carries the entry's ``version``. v1 writes
+    ``  version "1.2.3"``; Berry writes ``  version: 1.2.3``. Deeper
+    indentation (an entry's ``dependencies:`` block) is never read as the
+    entry's own version. Everything else — ``resolved``/``resolution``,
+    ``integrity``/``checksum``, ``dependencies`` — is ignored.
+    """
+    seen: dict[tuple[str, str], LockedDependency] = {}
+    specifiers: list[str] = []
+    version: str | None = None
+
+    def flush() -> None:
+        nonlocal specifiers, version
+        if version is not None:
+            for spec in specifiers:
+                dep_name = _yarn_specifier_name(spec)
+                if dep_name is not None:
+                    key = (dep_name, version)
+                    seen.setdefault(key, LockedDependency(name=dep_name, version=version))
+        specifiers, version = [], None
+
+    for raw_line in text.splitlines():
+        if not raw_line.strip() or raw_line.lstrip().startswith("#"):
+            continue
+
+        if not raw_line[0].isspace():
+            flush()
+            key = raw_line.rstrip()
+            if not key.endswith(":"):
+                continue
+            key = key[:-1].strip()
+            if key == "__metadata":
+                continue  # Berry's file header block, not a package
+            specifiers = [part.strip().strip('"') for part in key.split(",") if part.strip()]
+            continue
+
+        indent = len(raw_line) - len(raw_line.lstrip(" "))
+        if indent != 2:
+            continue
+        body = raw_line.strip()
+        if not body.startswith("version"):
+            continue
+        value = body[len("version"):].strip()
+        if value.startswith(":"):  # Berry: `version: 1.2.3`
+            value = value[1:].strip()
+        value = value.strip('"')
+        if _YARN_VERSION_VALUE_RE.match(value):
+            version = value
+
+    flush()
+    return sorted(seen.values(), key=lambda d: (d.name, d.version))
+
+
+def _yarn_specifier_name(spec: str) -> str | None:
+    """
+    Recover the registry package name from one ``name@range`` specifier.
+
+    The split is at the first ``@`` past index 0, so a scope marker
+    (``@babel/core@^7``) is never mistaken for the separator. Berry's
+    alias form ``alias@npm:real@range`` resolves to ``real`` — the name the
+    registry actually serves and the one ``scan`` must look up.
+    """
+    at = spec.find("@", 1)
+    if at == -1:
+        return None
+    name, range_ = spec[:at], spec[at + 1:]
+    if range_.startswith("npm:"):
+        target = range_[len("npm:"):]
+        inner_at = target.find("@", 1)
+        if inner_at != -1:
+            name = target[:inner_at]
+        return name or None
+    if range_.startswith(_YARN_NON_REGISTRY_PREFIXES):
+        return None
+    return name or None
 
 
 # ── PyPI: requirements.txt ──────────────────────────────────────────────────────

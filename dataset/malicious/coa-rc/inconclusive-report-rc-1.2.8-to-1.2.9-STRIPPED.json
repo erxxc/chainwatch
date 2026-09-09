@@ -1,0 +1,161 @@
+{
+  "schema_version": "0.3.0",
+  "ecosystem": "npm",
+  "package": "rc",
+  "from_version": "1.2.8",
+  "to_version": "1.2.9",
+  "risk_score": 46.5,
+  "severity": "MEDIUM",
+  "llm_base_score": 41.5,
+  "dimensions": [
+    {
+      "name": "network_calls",
+      "label": "New or changed network calls",
+      "score": 5.0,
+      "weight": 0.2,
+      "reasoning": "The diff adds compile.bat and compile.js with a preinstall hook, but the actual file contents are not visible (no diff content shown). Native addon compilation scripts can potentially make network calls to fetch dependencies or upload data. Cannot confirm without seeing the code.",
+      "confidence": 0.3
+    },
+    {
+      "name": "obfuscation",
+      "label": "Obfuscation / encoding patterns (base64, eval, dynamic require)",
+      "score": 4.0,
+      "weight": 0.2,
+      "reasoning": "File contents for compile.bat and compile.js are not visible in the diff (shown as 'no diff content'). Cannot assess obfuscation patterns. The absence of visible content is itself suspicious for a package update that claims to add 14+9 lines of executable code.",
+      "confidence": 0.2
+    },
+    {
+      "name": "install_hooks",
+      "label": "Postinstall / preinstall script additions or changes",
+      "score": 8.0,
+      "weight": 0.15,
+      "reasoning": "A new 'preinstall' hook is explicitly detected in the metadata. The rc package (v1.2.8) is a well-known configuration loader with no prior need for native compilation. Adding a preinstall hook alongside compile.bat and compile.js in a minor patch update (1.2.8\u21921.2.9) is highly anomalous. The 'rc' package has no legitimate reason to add native compilation steps.",
+      "confidence": 0.8
+    },
+    {
+      "name": "env_conditional",
+      "label": "Conditional logic gated on env vars/platform/CI, or environment variables read/exfiltrated for credential theft",
+      "score": 3.0,
+      "weight": 0.15,
+      "reasoning": "Cannot assess environment variable access without visible file contents. Compilation scripts sometimes read env vars for build configuration, which would be low-risk, but credential harvesting via env vars is possible. Low confidence due to missing content.",
+      "confidence": 0.2
+    },
+    {
+      "name": "dependency_changes",
+      "label": "Dependency graph changes (new transitive deps)",
+      "score": 3.0,
+      "weight": 0.1,
+      "reasoning": "A native addon (binding.gyp or .node file) is flagged as added. This implies new build-time dependencies (node-gyp, etc.) that were not present in 1.2.8. The rc package had no native addon previously, making this an unexpected dependency surface expansion.",
+      "confidence": 0.3
+    },
+    {
+      "name": "resource_exhaustion",
+      "label": "Denial-of-service / resource-exhaustion patterns (unbounded loops, recursion, unthrottled blocking calls)",
+      "score": 2.0,
+      "weight": 0.2,
+      "reasoning": "No visible code content to assess resource exhaustion patterns. Compilation scripts are not typically associated with this pattern, but the hidden content prevents confident assessment.",
+      "confidence": 0.2
+    }
+  ],
+  "feed_results": [
+    {
+      "source": "osv",
+      "status": "suspicious",
+      "details": "Found 1 advisory/ies: GHSA-g2q5-5433-rhrf",
+      "url": "https://osv.dev/list?q=rc",
+      "advisory_ids": [
+        "GHSA-g2q5-5433-rhrf"
+      ],
+      "signing_identity": null,
+      "signing_identity_changed": null,
+      "scorecard_score": null
+    },
+    {
+      "source": "rekor",
+      "status": "no_data",
+      "details": "No Sigstore provenance attestation found for rc@1.2.9.",
+      "url": null,
+      "advisory_ids": [],
+      "signing_identity": null,
+      "signing_identity_changed": null,
+      "scorecard_score": null
+    },
+    {
+      "source": "scorecard",
+      "status": "suspicious",
+      "details": "Score: 2.4/10. Code-Review=3, Maintained=0, Signed-Releases=-1, Branch-Protection=0",
+      "url": "https://scorecard.dev/viewer/?uri=github.com/dominictarr/rc",
+      "advisory_ids": [],
+      "signing_identity": null,
+      "signing_identity_changed": null,
+      "scorecard_score": 2.4
+    },
+    {
+      "source": "new_deps",
+      "status": "clean",
+      "details": "No new dependencies introduced in this diff.",
+      "url": null,
+      "advisory_ids": [],
+      "signing_identity": null,
+      "signing_identity_changed": null,
+      "scorecard_score": null
+    }
+  ],
+  "score_modifiers": [
+    {
+      "source": "scorecard",
+      "rule": "scorecard_poor",
+      "delta": 5.0,
+      "note": "Weak OpenSSF Scorecard (2.4/10) amplifies risk"
+    }
+  ],
+  "caveats": [
+    "23 comment line(s) were stripped from the diff before LLM analysis (--strip-comments); the LLM scored executable code only, so prose-driven signal is deliberately absent."
+  ],
+  "diff_summary": {
+    "files_added": [
+      "compile.bat",
+      "compile.js"
+    ],
+    "files_removed": [],
+    "files_modified": [],
+    "file_diffs": [
+      {
+        "path": "compile.bat",
+        "change_type": "added",
+        "lines_added": 9,
+        "lines_removed": 0,
+        "unified_diff": ""
+      },
+      {
+        "path": "compile.js",
+        "change_type": "added",
+        "lines_added": 14,
+        "lines_removed": 0,
+        "unified_diff": ""
+      }
+    ],
+    "new_dependencies": [],
+    "removed_dependencies": [],
+    "new_install_hooks": [
+      "preinstall"
+    ],
+    "maintainer_changed": false,
+    "native_addons_added": true,
+    "total_diff_lines": 23,
+    "chunks_sent_to_llm": 1,
+    "diff_truncated": false,
+    "truncated_files": [],
+    "skipped_files": [],
+    "large_files_split": false,
+    "split_files": [],
+    "comments_stripped": true,
+    "comment_lines_stripped": 23
+  },
+  "llm_model": "claude-sonnet-4-6",
+  "llm_summary": "The rc package version 1.2.9 introduces a highly suspicious preinstall hook alongside two new files (compile.bat and compile.js) and a native addon, none of which have any legitimate purpose in the well-known 'rc' configuration-loader package. The actual file contents are not visible in the diff, which severely limits analysis but is itself a red flag. The combination of a new preinstall script, native addon, and compilation scripts in a minor patch to a pure-JavaScript package with no prior build step represents a strong indicator of a malicious supply chain injection. This update should be treated as high-risk until the contents of compile.bat, compile.js, and the binding.gyp file can be fully audited.",
+  "timestamp": "2026-09-09T17:47:15.950829Z",
+  "from_version_sha256": "03a5fae485203eb424dd3e9b1c4cf9ce3d04c03b154cb4fb6604497815cae93b",
+  "to_version_sha256": null,
+  "timings": null
+}

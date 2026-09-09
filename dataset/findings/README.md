@@ -748,6 +748,18 @@ pre-parallelisation implementation, not a current characterisation of
 trials, network variance isolated) is still future work, more so now that
 there's a real "before" number to compare a re-measured "after" against.
 
+**Instrumented as of schema 0.3.0 (2026-09-09).** Reports now carry a
+`timings` object (fetch, diff, llm, feeds, analysis, and total seconds),
+so the next before/after can be read from the corpus instead of a
+stopwatch. First live data point, `lodash 4.17.20 → 4.17.21` (3 chunks,
+concurrency 4, live feeds): 18.8 s total, of which 17.8 s LLM, 0.9 s
+fetch, 0.3 s feeds — see
+`dataset/benign/lodash/experiment-rerun-4.17.20-to-4.17.21.json`. A
+second point from the same pair with `--split-large-files` (6 chunks, two
+waves at concurrency 4): 43.0 s total, 42.1 s LLM
+(`experiment-split-large-files-4.17.20-to-4.17.21.json`). Single runs
+with network variance not isolated; the same caveat as above applies.
+
 ## Recommendations arising from this data
 
 1. **✅ Implemented (2026-08-10), in two parts.** A sixth risk dimension,
@@ -914,6 +926,27 @@ there's a real "before" number to compare a re-measured "after" against.
    about an unexplained install hook, the model's background knowledge of
    this specific famous incident, or some mix of both. See
    `dataset/malicious/coa-rc/FINDINGS.md` for the full breakdown.
+
+   **Update, 2026-09-09: the control is now a flag, and it splits the
+   effect in two.** `chainwatch diff --strip-comments` removes whole-line
+   comments from the diff before the LLM sees it (recorded in the report
+   as `diff_summary.comments_stripped` / `comment_lines_stripped`, plus a
+   caveat). Run on the narrated `coa`/`rc` trees exactly as committed, it
+   takes both pairs from HIGH to MEDIUM (`coa` 56.0 → 43.5, `rc`
+   60.0 → 46.5): the prose alone is worth 12.5–13.5 points. The remaining
+   7.5–15.0 points down to the silent-stub scores come from a second path
+   — the model reads "+14 lines added, content not shown" as suspicious in
+   itself and scores `network_calls`/`obfuscation` at 5.0/4.0 on that
+   opacity, where genuinely empty files draw 2.0–3.0. On the benign side,
+   `lodash 4.17.20 → 4.17.21` moves from a base of 4.0 to 3.0 with the
+   flag (47 comment lines removed): a one-point delta on real,
+   comment-rich code, against 12.5–13.5 on narrated placeholders. One
+   repeat of the `coa` stripped condition landed 2.0 points from the first
+   run (45.5 vs 43.5), the only run-to-run variance point so far; it also
+   caught the model citing the tool's own "23 comment lines were removed"
+   preamble note as evidence of substantive hidden content — a third
+   leakage path, from tooling notices rather than attacker prose. See the
+   third-condition section of `dataset/malicious/coa-rc/FINDINGS.md`.
 9. **✅ Implemented (2026-08-11). `env_conditional`'s stated definition
    widened to match its already-correct observed behavior; not split into
    two dimensions.** `models.py` previously described it as "conditional

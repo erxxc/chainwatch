@@ -220,7 +220,10 @@ def _emit_rich(report: RiskReport, *, output_file: Path | None) -> None:
       2. Dimensions table — per-dimension LLM scores and reasoning
       3. Feed results table — OSV / Rekor / Scorecard status
       4. Summary block — LLM free-text explanation
-      5. Provenance footnote — model, timestamp, SHA256s
+      5. Score path — base score, modifiers, final
+      6. Diff summary — counts, plus what the LLM did not see
+      7. Caveats — evidence limitations, when any apply
+      8. Provenance footnote — model, timestamp, SHA256s, stage timings
     """
     console = _get_console(output_file)
 
@@ -351,13 +354,30 @@ def _emit_rich(report: RiskReport, *, output_file: Path | None) -> None:
         diff_parts.append(f"[cyan]+{len(ds.new_dependencies)} new deps[/cyan]")
     if ds.new_install_hooks:
         diff_parts.append(f"[red]install hooks: {', '.join(ds.new_install_hooks)}[/red]")
-    if ds.diff_truncated:
+    if ds.truncated_files:
+        diff_parts.append(
+            f"[dim]({len(ds.truncated_files)} file(s) truncated — token budget)[/dim]"
+        )
+    elif ds.diff_truncated:
         diff_parts.append("[dim](diff truncated — token budget)[/dim]")
+    if ds.skipped_files:
+        diff_parts.append(f"[dim]({len(ds.skipped_files)} file(s) skipped — too large)[/dim]")
+    if ds.split_files:
+        diff_parts.append(f"[dim]({len(ds.split_files)} file(s) split across chunks)[/dim]")
+    if ds.comments_stripped:
+        diff_parts.append(f"[dim](comments stripped: {ds.comment_lines_stripped} lines)[/dim]")
 
     console.print("[bold dim]DIFF SUMMARY[/bold dim]  " + "  ·  ".join(diff_parts))
     console.print()
 
-    # ── 7. Provenance ─────────────────────────────────────────────────────────
+    # ── 7. Caveats ────────────────────────────────────────────────────────────
+    if report.caveats:
+        console.print("[bold dim]CAVEATS[/bold dim]")
+        for caveat in report.caveats:
+            console.print(f"  [yellow]⚠[/yellow]  [dim]{caveat}[/dim]")
+        console.print()
+
+    # ── 8. Provenance ─────────────────────────────────────────────────────────
     ts = report.timestamp.strftime("%Y-%m-%d %H:%M:%S UTC")
     prov = (
         f"[dim]model: {report.llm_model}  ·  "
@@ -366,6 +386,13 @@ def _emit_rich(report: RiskReport, *, output_file: Path | None) -> None:
     )
     if report.to_version_sha256:
         prov += f"\n[dim]to_version sha256: {report.to_version_sha256}[/dim]"
+    if report.timings is not None:
+        t = report.timings
+        prov += (
+            f"\n[dim]took {t.total_seconds:.1f}s  ·  fetch {t.fetch_seconds:.1f}s  ·  "
+            f"diff {t.diff_seconds:.1f}s  ·  llm {t.llm_seconds:.1f}s  ·  "
+            f"feeds {t.feeds_seconds:.1f}s[/dim]"
+        )
     console.print(prov)
     console.print()
 
