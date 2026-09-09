@@ -56,6 +56,7 @@ from chainwatch.models import (
     Ecosystem,
     FeedResult,
     FeedStatus,
+    PipelineTimings,
     RiskDimension,
     RiskReport,
     ScoreModifier,
@@ -89,6 +90,7 @@ def build_report(
     feed_results: list[FeedResult],
     llm_summary: str,
     llm_model: str,
+    timings: PipelineTimings | None = None,
 ) -> RiskReport:
     """
     Assemble the final RiskReport from all pipeline outputs.
@@ -105,6 +107,8 @@ def build_report(
         feed_results:   Results from OSV, Rekor, Scorecard, new_deps
         llm_summary:    LLM free-text assessment
         llm_model:      Model string used for provenance
+        timings:        Per-stage wall-clock durations, if the caller measured
+                        them (the pipeline does; direct callers may not)
 
     Returns:
         A fully validated RiskReport ready for emission.
@@ -132,13 +136,75 @@ def build_report(
         dimensions=dimensions,
         feed_results=feed_results,
         score_modifiers=modifiers,
+        caveats=_build_caveats(diff_summary),
         diff_summary=diff_summary,
         llm_model=llm_model,
         llm_summary=llm_summary,
         timestamp=datetime.now(UTC),
         from_version_sha256=from_sha256,
         to_version_sha256=to_sha256,
+        timings=timings,
     )
+
+
+# ── Evidence caveats ──────────────────────────────────────────────────────────
+
+_CAVEAT_FILE_LIST_LIMIT = 5
+
+
+def _build_caveats(diff_summary: DiffSummary) -> list[str]:
+    """
+    Turn the diff-visibility fields into plain statements a reader can act on.
+
+    Why this exists: dataset/findings/README.md's ua-parser-js and requests
+    write-ups both note that a minified bundle gets truncated head-first —
+    exactly where a payload tends to sit — and that the report carried only a
+    single ``diff_truncated`` boolean about it. A reviewer looking at a LOW
+    score had no way to tell whether the LLM saw the whole diff or half of
+    it. These caveats name the blind spots explicitly, derived from
+    ``diff_summary`` only — never from the LLM's own text — so they can't be
+    talked out of existence by a confident-sounding summary.
+    """
+    caveats: list[str] = []
+
+    if diff_summary.skipped_files:
+        caveats.append(
+            f"{len(diff_summary.skipped_files)} file(s) exceeded the per-file diff "
+            f"size limit and were never shown to the LLM: "
+            f"{_file_list(diff_summary.skipped_files)}. Nothing in them contributed "
+            "to the LLM score."
+        )
+
+    if diff_summary.truncated_files:
+        caveats.append(
+            f"The diff for {len(diff_summary.truncated_files)} file(s) was cut "
+            f"head-first at the per-chunk token budget: "
+            f"{_file_list(diff_summary.truncated_files)}. The LLM never saw the "
+            "omitted tail, so dimension scores may underestimate anything located "
+            "there (minified bundles tend to put payloads at the end)."
+        )
+
+    if diff_summary.chunks_sent_to_llm > 1:
+        caveats.append(
+            f"The diff was split into {diff_summary.chunks_sent_to_llm} chunks scored "
+            "independently; each dimension's score is the maximum across chunks, and "
+            "the summary text reflects only the last chunk."
+        )
+
+    if diff_summary.comments_stripped:
+        caveats.append(
+            f"{diff_summary.comment_lines_stripped} comment line(s) were stripped from "
+            "the diff before LLM analysis (--strip-comments); the LLM scored "
+            "executable code only, so prose-driven signal is deliberately absent."
+        )
+
+    return caveats
+
+
+def _file_list(paths: list[str]) -> str:
+    shown = ", ".join(paths[:_CAVEAT_FILE_LIST_LIMIT])
+    extra = len(paths) - _CAVEAT_FILE_LIST_LIMIT
+    return f"{shown} and {extra} more" if extra > 0 else shown
 
 
 # ── Score computation ─────────────────────────────────────────────────────────

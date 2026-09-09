@@ -78,6 +78,10 @@ chainwatch diff npm lodash 4.17.20 4.17.21 --threshold 50
 # Skip feed lookups (faster, offline-friendly)
 chainwatch diff npm lodash 4.17.20 4.17.21 --no-feeds
 
+# Narrative-leakage control: strip whole-line comments before the LLM sees
+# the diff, so the score reflects executable code only (recorded in the report)
+chainwatch diff npm lodash 4.17.20 4.17.21 --strip-comments
+
 # Scan a lockfile: diff every pinned dependency against its predecessor
 # ("was the bump that put this exact version in my lockfile itself
 # suspicious?"). Supports package-lock.json (npm) and requirements.txt

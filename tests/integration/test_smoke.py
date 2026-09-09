@@ -142,6 +142,24 @@ class TestSmoke:
         data = json.loads(result.output.strip())
         assert data["ecosystem"] == "pypi"
 
+    def test_strip_comments_flag_is_recorded_in_the_report(self):
+        """--strip-comments must be visible in the report, not silent."""
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "--json", "diff", "npm", "lodash", "4.17.20", "4.17.21",
+                "--no-feeds", "--strip-comments",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output.strip())
+        assert data["diff_summary"]["comments_stripped"] is True
+        # lodash 4.17.21 added two JSDoc-commented helper modules.
+        assert data["diff_summary"]["comment_lines_stripped"] > 0
+        assert any("strip-comments" in caveat for caveat in data["caveats"])
+        assert data["timings"]["total_seconds"] >= 0
+
     def test_json_mode_stdout_is_pure_json_in_a_real_process(self):
         """
         --json stdout must contain *only* the report — no log lines.

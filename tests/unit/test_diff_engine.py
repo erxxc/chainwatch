@@ -211,6 +211,25 @@ class TestDiffEngine:
         assert "huge.js" in result.files_added
         assert result.file_diffs[0].unified_diff is not None
         assert "diff skipped" in result.file_diffs[0].unified_diff
+        # The report names the file the LLM never saw, not just a placeholder string.
+        assert result.skipped_files == ["huge.js"]
+
+    def test_modified_oversized_file_is_listed_as_skipped(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CHAINWATCH_MAX_DIFF_FILE_BYTES", "1024")
+        from chainwatch.config import get_settings
+        get_settings.cache_clear()
+
+        a = tmp_path / "a"
+        b = tmp_path / "b"
+        a.mkdir()
+        b.mkdir()
+        (a / "huge.js").write_text("x" * 2048)
+        (b / "huge.js").write_text("y" * 2048)
+
+        result = compute_diff(a, b)
+
+        assert result.files_modified == ["huge.js"]
+        assert result.skipped_files == ["huge.js"]
 
     def test_identical_oversized_files_are_not_reported_modified(self, tmp_path, monkeypatch):
         monkeypatch.setenv("CHAINWATCH_MAX_DIFF_FILE_BYTES", "1024")
@@ -229,6 +248,7 @@ class TestDiffEngine:
 
         assert result.files_modified == []
         assert result.file_diffs == []
+        assert result.skipped_files == []
 
 
 # ── Python metadata tests ─────────────────────────────────────────────────────
@@ -479,6 +499,7 @@ class TestChunker:
         assert len(chunks) == 1
         assert diff.chunks_sent_to_llm == 1
         assert diff.diff_truncated is False
+        assert diff.truncated_files == []
 
     def test_chunk_contains_metadata_preamble(self, simple_change):
         a, b = simple_change
@@ -501,6 +522,18 @@ class TestChunker:
         chunks = chunk_diff(diff, max_tokens_per_chunk=100)
         assert diff.diff_truncated is True
         assert "truncated" in chunks[0].lower()
+        # The notice tells the LLM how much it is missing, and the report
+        # names the file so the aggregator can raise a caveat.
+        assert "omitted" in chunks[0]
+        assert diff.truncated_files == ["big.js"]
+
+    def test_stripped_comments_are_noted_in_the_preamble(self, simple_change):
+        a, b = simple_change
+        diff = compute_diff(a, b)
+        diff.comments_stripped = True
+        diff.comment_lines_stripped = 4
+        chunks = chunk_diff(diff, max_tokens_per_chunk=8_000)
+        assert "4 comment line(s) were removed" in chunks[0]
 
     def test_metadata_postinstall_appears_in_chunk(self, with_package_json):
         a, b = with_package_json

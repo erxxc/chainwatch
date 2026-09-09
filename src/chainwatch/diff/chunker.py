@@ -57,7 +57,9 @@ def chunk_diff(
         normal-sized packages.  Multiple items for very large diffs.
 
     Side effect:
-        Sets ``diff.diff_truncated = True`` if any file content was truncated.
+        Sets ``diff.diff_truncated = True`` if any file content was truncated,
+        and ``diff.truncated_files`` to the paths that were cut (so the report
+        can say *which* files the LLM only partially saw).
         Sets ``diff.chunks_sent_to_llm`` to the number of chunks produced.
     """
     budget_chars = max_tokens_per_chunk * CHARS_PER_TOKEN
@@ -68,20 +70,28 @@ def chunk_diff(
     # ── Build per-file diff blocks ────────────────────────────────────────────
     file_blocks: list[str] = []
     truncated = False
+    truncated_files: list[str] = []
 
     for file_diff in diff.file_diffs:
         block = _format_file_diff(file_diff)
-        # If a single file's diff exceeds the per-chunk budget, truncate it
+        # If a single file's diff exceeds the per-chunk budget, truncate it.
+        # Head-first: the LLM sees the start of the file and loses the tail.
+        # The report names the file in ``truncated_files`` and the aggregator
+        # turns that into a caveat, so nobody has to guess what was cut.
         if len(block) > budget_chars:
+            original_len = len(block)
             max_chars = budget_chars - 200  # leave room for truncation notice
             block = (
                 block[:max_chars]
-                + f"\n[... diff truncated at {max_tokens_per_chunk} token budget ...]\n"
+                + f"\n[... diff truncated head-first at the {max_tokens_per_chunk}-token "
+                f"chunk budget: {max_chars} of {original_len} chars shown, "
+                f"{original_len - max_chars} omitted ...]\n"
             )
             truncated = True
+            truncated_files.append(file_diff.path)
             log.warning(
                 "File %s diff truncated from %d to ~%d chars",
-                file_diff.path, len(block), max_chars,
+                file_diff.path, original_len, max_chars,
             )
         file_blocks.append(block)
 
@@ -104,6 +114,7 @@ def chunk_diff(
 
     # ── Update diff summary with chunking metadata ─────────────────────────────
     diff.diff_truncated = truncated
+    diff.truncated_files = truncated_files
     diff.chunks_sent_to_llm = len(chunks)
 
     log.info(
@@ -167,6 +178,13 @@ def _build_metadata_preamble(diff: DiffSummary) -> str:
 
     if diff.native_addons_added:
         lines.append("## ⚠ Native addon (binding.gyp / .node file) added")
+        lines.append("")
+
+    if diff.comments_stripped:
+        lines.append(
+            f"Note: {diff.comment_lines_stripped} comment line(s) were removed from the "
+            "file diffs below before analysis; only executable code is shown."
+        )
         lines.append("")
 
     lines.append("# File-level diffs follow")

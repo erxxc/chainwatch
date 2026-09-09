@@ -84,6 +84,7 @@ async def _scan_one(
     dep: LockedDependency,
     *,
     no_feeds: bool,
+    strip_comments: bool = False,
 ) -> ScanEntry:
     """Diff a single dependency's locked version against its predecessor.
 
@@ -118,6 +119,7 @@ async def _scan_one(
     try:
         report = await run_diff_pipeline(
             client, ecosystem, dep.name, previous, dep.version, no_feeds,
+            strip_comments=strip_comments,
         )
     except Exception as exc:
         log.warning(
@@ -144,6 +146,7 @@ async def scan_dependencies(
     dependencies: list[LockedDependency],
     *,
     no_feeds: bool,
+    strip_comments: bool = False,
 ) -> list[ScanEntry]:
     """
     Diff every dependency's locked version against its immediate predecessor.
@@ -163,6 +166,7 @@ async def scan_dependencies(
         ecosystem:    npm or pypi (the whole lockfile is one ecosystem)
         dependencies: Parsed lockfile entries (see chainwatch.lockfile)
         no_feeds:     Passed straight through to the diff pipeline
+        strip_comments: Passed straight through to the diff pipeline
 
     Returns:
         One ScanEntry per dependency, in the same order given — preserved
@@ -175,6 +179,8 @@ async def scan_dependencies(
 
     async def _bounded(dep: LockedDependency) -> ScanEntry:
         async with semaphore:
-            return await _scan_one(client, ecosystem, dep, no_feeds=no_feeds)
+            return await _scan_one(
+                client, ecosystem, dep, no_feeds=no_feeds, strip_comments=strip_comments,
+            )
 
     return list(await asyncio.gather(*(_bounded(dep) for dep in dependencies)))

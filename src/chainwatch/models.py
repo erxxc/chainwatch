@@ -22,7 +22,12 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-SCHEMA_VERSION = "0.2.0"
+# 0.2.0 (2026-07-27): llm_base_score, score_modifiers[], per-dimension confidence.
+# 0.3.0 (2026-09-09): timings, caveats[], and the diff-visibility fields on
+#   DiffSummary (truncated_files, skipped_files, comments_stripped,
+#   comment_lines_stripped). All additive with defaults — 0.2.0 and 0.1.0
+#   reports still validate against this schema.
+SCHEMA_VERSION = "0.3.0"
 
 
 # ── Enumerations ──────────────────────────────────────────────────────────────
@@ -271,6 +276,39 @@ class DiffSummary(BaseModel):
         description="True if the diff exceeded the token budget and was truncated",
     )
 
+    # Diff-visibility fields (schema 0.3.0) — what the LLM did *not* see.
+    # dataset/findings/README.md flagged that minified bundles get truncated
+    # head-first, exactly where a payload tends to hide, and that the report
+    # only carried a single boolean about it. These name the files so a
+    # reader can judge the blind spot instead of guessing at it.
+    truncated_files: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Files whose diff text was cut head-first at the per-chunk token "
+            "budget by the chunker — the LLM never saw the omitted tail"
+        ),
+    )
+    skipped_files: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Files never diffed at all because they exceed "
+            "CHAINWATCH_MAX_DIFF_FILE_BYTES — the LLM saw only a placeholder notice"
+        ),
+    )
+    comments_stripped: bool = Field(
+        default=False,
+        description=(
+            "True if comment lines were removed from the diff before LLM analysis "
+            "(--strip-comments, the narrative-leakage control — see "
+            "dataset/findings/README.md recommendation #8)"
+        ),
+    )
+    comment_lines_stripped: int = Field(
+        default=0,
+        ge=0,
+        description="How many diff lines --strip-comments removed (0 when not enabled)",
+    )
+
 
 # ── Score Modifiers ───────────────────────────────────────────────────────────
 
@@ -296,6 +334,41 @@ class ScoreModifier(BaseModel):
         description="Signed points this modifier contributed to the composite score",
     )
     note: str = Field(description="Human-readable explanation of why it applied")
+
+
+# ── Pipeline Timings ──────────────────────────────────────────────────────────
+
+
+class PipelineTimings(BaseModel):
+    """
+    Wall-clock seconds spent in each pipeline stage for one report.
+
+    Added 2026-09-09 because dataset/findings/README.md's "Latency" section
+    could only cite hand-timed observations ("roughly 2.5 minutes") — the
+    report JSON recorded no duration at all, so the before/after of the
+    chunk-parallelisation change was never measurable from the corpus
+    itself. These are observational, not a benchmark: they include network
+    variance and API queueing, and a single run says little on its own.
+
+    ``llm_seconds`` and ``feeds_seconds`` overlap in time — the two run
+    concurrently — so ``analysis_seconds`` (the wall-clock of that
+    concurrent stage) is roughly their max, not their sum.
+    """
+
+    fetch_seconds: float = Field(
+        ge=0.0, description="Registry metadata + tarball download + extraction"
+    )
+    diff_seconds: float = Field(
+        ge=0.0, description="Diff engine + preprocessing + chunking"
+    )
+    llm_seconds: float = Field(ge=0.0, description="All LLM chunk calls, end to end")
+    feeds_seconds: float = Field(
+        ge=0.0, description="All feed lookups, end to end (0 with --no-feeds)"
+    )
+    analysis_seconds: float = Field(
+        ge=0.0, description="Wall-clock of the concurrent LLM + feeds stage"
+    )
+    total_seconds: float = Field(ge=0.0, description="Whole pipeline, fetch to report")
 
 
 # ── Top-level Report ──────────────────────────────────────────────────────────
@@ -358,6 +431,18 @@ class RiskReport(BaseModel):
         description="Feed-driven adjustments applied to llm_base_score to reach risk_score",
     )
 
+    # ── Evidence caveats ─────────────────────────────────────────────────────
+    caveats: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Machine-generated statements about evidence the LLM did not see or "
+            "scored under a known limitation (truncated or skipped files, "
+            "multi-chunk scoring, stripped comments). Empty when the whole diff "
+            "was visible in one chunk. Built by analyzer/aggregator.py from "
+            "diff_summary — never from the LLM's own output."
+        ),
+    )
+
     # ── Diff summary ─────────────────────────────────────────────────────────
     diff_summary: DiffSummary
 
@@ -379,6 +464,13 @@ class RiskReport(BaseModel):
     to_version_sha256: str | None = Field(
         default=None,
         description="SHA256 of the downloaded to_version tarball — corpus integrity check",
+    )
+    timings: PipelineTimings | None = Field(
+        default=None,
+        description=(
+            "Per-stage wall-clock durations for this run. None for reports "
+            "produced before schema 0.3.0 and for reports re-rendered from disk."
+        ),
     )
 
     # ── Validators ───────────────────────────────────────────────────────────
