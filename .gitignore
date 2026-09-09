@@ -18,9 +18,9 @@ ENV/
 wheelhouse/
 .pip-cache/
 
-# uv
-uv.lock          # committed — but listed here so editors don't flag it
-.python-version  # committed
+# uv.lock and .python-version are committed on purpose. Do not list them here:
+# gitignore has no trailing-comment syntax, so a line like
+# 'uv.lock  # committed' silently matches nothing.
 
 # Environment / secrets — NEVER commit .env
 .env
