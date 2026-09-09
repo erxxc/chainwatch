@@ -755,8 +755,10 @@ stopwatch. First live data point, `lodash 4.17.20 → 4.17.21` (3 chunks,
 concurrency 4, live feeds): 18.8 s total, of which 17.8 s LLM, 0.9 s
 fetch, 0.3 s feeds — see
 `dataset/benign/lodash/experiment-rerun-4.17.20-to-4.17.21.json`. A
-single run with network variance not isolated; the same caveat as above
-applies.
+second point from the same pair with `--split-large-files` (6 chunks, two
+waves at concurrency 4): 43.0 s total, 42.1 s LLM
+(`experiment-split-large-files-4.17.20-to-4.17.21.json`). Single runs
+with network variance not isolated; the same caveat as above applies.
 
 ## Recommendations arising from this data
 
@@ -938,9 +940,13 @@ applies.
    opacity, where genuinely empty files draw 2.0–3.0. On the benign side,
    `lodash 4.17.20 → 4.17.21` moves from a base of 4.0 to 3.0 with the
    flag (47 comment lines removed): a one-point delta on real,
-   comment-rich code, against 12.5–13.5 on narrated placeholders. All
-   single runs, variance unmeasured; see the third-condition section of
-   `dataset/malicious/coa-rc/FINDINGS.md`.
+   comment-rich code, against 12.5–13.5 on narrated placeholders. One
+   repeat of the `coa` stripped condition landed 2.0 points from the first
+   run (45.5 vs 43.5), the only run-to-run variance point so far; it also
+   caught the model citing the tool's own "23 comment lines were removed"
+   preamble note as evidence of substantive hidden content — a third
+   leakage path, from tooling notices rather than attacker prose. See the
+   third-condition section of `dataset/malicious/coa-rc/FINDINGS.md`.
 9. **✅ Implemented (2026-08-11). `env_conditional`'s stated definition
    widened to match its already-correct observed behavior; not split into
    two dimensions.** `models.py` previously described it as "conditional

@@ -1,11 +1,12 @@
 # coa / rc — chainwatch findings
 
-**Not a canonical corpus entry — read `SOURCING.md` first.** All six
+**Not a canonical corpus entry — read `SOURCING.md` first.** All seven
 reports here (`inconclusive-report-coa-2.0.2-to-2.0.3-PARTIAL.json`,
 `inconclusive-report-rc-1.2.8-to-1.2.9-PARTIAL.json`, their
 `-SILENT-STUB` counterparts, added 2026-08-11 as a deliberate follow-up,
-and their `-STRIPPED` counterparts, added 2026-09-09 — see the last
-section) are excluded from every corpus-wide precision/recall statistic in
+their `-STRIPPED` counterparts and one `-STRIPPED-run2` repeat, added
+2026-09-09 — see the last section) are excluded from every corpus-wide
+precision/recall statistic in
 `dataset/findings/README.md` by filename convention. This document exists
 because the *attempt* produced a genuinely useful, unexpected finding —
 not the one it was built to test — and a follow-up experiment then
@@ -206,14 +207,16 @@ one preamble line stating that 23 comment lines were removed. Same real
 |---|---|---|---|---|---|---|---|
 | `coa 2.0.2 → 2.0.3` | narrated placeholder | 56.0 | HIGH | 51.0 | 10.0 / 0.9 | 8.0 / 0.4 | 7.0 / 0.4 |
 | `coa 2.0.2 → 2.0.3` | **narrated, `--strip-comments`** | **43.5** | **MEDIUM** | **38.5** | 8.0 / 0.7 | 5.0 / 0.3 | 4.0 / 0.2 |
+| `coa 2.0.2 → 2.0.3` | narrated, `--strip-comments` (repeat run) | 45.5 | MEDIUM | 40.5 | 8.0 / 0.8 | 5.0 / 0.3 | 4.0 / 0.2 |
 | `coa 2.0.2 → 2.0.3` | silent stub | 36.0 | MEDIUM | 31.0 | 8.0 / 0.7 | 3.0 / 0.2 | 3.0 / 0.2 |
 | `rc 1.2.8 → 1.2.9` | narrated placeholder | 60.0 | HIGH | 55.0 | 10.0 / 0.9 | 9.0 / 0.4 | 8.0 / 0.4 |
 | `rc 1.2.8 → 1.2.9` | **narrated, `--strip-comments`** | **46.5** | **MEDIUM** | **41.5** | 8.0 / 0.8 | 5.0 / 0.3 | 4.0 / 0.2 |
 | `rc 1.2.8 → 1.2.9` | silent stub | 31.5 | MEDIUM | 26.5 | 8.0 / 0.7 | 2.0 / 0.2 | 2.0 / 0.2 |
 
-Reports: `inconclusive-report-coa-2.0.2-to-2.0.3-STRIPPED.json` and
-`inconclusive-report-rc-1.2.8-to-1.2.9-STRIPPED.json` — still excluded
-from every corpus count by filename, like the four before them.
+Reports: `inconclusive-report-coa-2.0.2-to-2.0.3-STRIPPED.json`,
+`inconclusive-report-rc-1.2.8-to-1.2.9-STRIPPED.json`, and the repeat
+`inconclusive-report-coa-2.0.2-to-2.0.3-STRIPPED-run2.json` — still
+excluded from every corpus count by filename, like the four before them.
 
 What it shows:
 
@@ -245,9 +248,27 @@ What it shows:
   scores already clear 30, so the rule stays unexercised; the count of
   out-of-corpus runs where it has fired remains zero.
 
-Caveats: every condition is a single run, and none has been repeated to
-measure run-to-run variance, so differences of a few points between
-conditions should not be over-read. And, as before, none of this
-separates "the model believes the prose" from "the model recognises a
-famous 2021 incident" — stripping removes the prose but not the package
-names.
+Variance, measured once: the `coa` stripped condition was repeated
+(`-STRIPPED-run2`) and came back at 45.5 / base 40.5 against the first
+run's 43.5 / 38.5 — 2.0 points apart, with identical scores on four of
+the six dimensions (`install_hooks` 8.0 both times at confidence 0.7 vs
+0.8; `resource_exhaustion` 1.0 vs 2.0). One repeat is not a variance
+estimate, but it does say the 12.5–13.5 point prose effect and the
+7.5–15.0 point opacity effect are both well outside what two runs of the
+same condition differ by. The `rc` condition and the two earlier
+conditions were not repeated.
+
+The repeat also surfaced a third leakage path, smaller than the other two
+but of the same kind. The stripped condition's preamble tells the LLM,
+factually, that 23 comment lines were removed; in the repeat the model
+cited that line as evidence — *"23 comment lines were removed before
+analysis, suggesting the files have substantive content"* — when scoring
+`obfuscation`. So every notice the tool inserts about what it withheld
+(`(no diff content)`, the line counts, the stripped-comments note) is read
+as a clue about what was withheld. Whether that note should stay, be
+reworded, or be dropped is an open question; it is left in place for now
+so the report and the prompt agree about what happened.
+
+As before, none of this separates "the model believes the prose" from
+"the model recognises a famous 2021 incident" — stripping removes the
+prose but not the package names.

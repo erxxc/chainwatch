@@ -68,18 +68,20 @@ a genuinely benign diff out of LOW.
   low-risk rather than high-risk, which is the right outcome: patching a bug
   is not the same shape of event as introducing one.
 
-#### lodash, rerun 2026-09-09 — baseline reproduced, `--strip-comments` delta measured
+#### lodash, reruns 2026-09-09 — baseline reproduced, `--strip-comments` and `--split-large-files` deltas measured
 
-Two further live runs of the same pair (`claude-sonnet-4-6`, live feeds),
-kept as `experiment-rerun-4.17.20-to-4.17.21.json` and
-`experiment-strip-comments-4.17.20-to-4.17.21.json` — not `report-*`, so
-excluded from every corpus count; the 2026-08-07 report above remains the
-canonical one.
+Three further live runs of the same pair (`claude-sonnet-4-6`, live
+feeds), kept as `experiment-rerun-4.17.20-to-4.17.21.json`,
+`experiment-strip-comments-4.17.20-to-4.17.21.json`, and
+`experiment-split-large-files-4.17.20-to-4.17.21.json` — not `report-*`,
+so excluded from every corpus count; the 2026-08-07 report above remains
+the canonical one.
 
 | condition | LLM base | feed-adjusted | obfuscation | dependency_changes | resource_exhaustion |
 |---|---|---|---|---|---|
 | baseline rerun | 4.0 | 0.0 | 1.0 / 0.7 | 1.0 / 1.0 | 0.5 / 0.85 |
 | `--strip-comments` (47 comment lines removed) | 3.0 | 0.0 | 0.5 / 0.5 | 1.0 / 0.9 | 0.5 / 0.85 |
+| `--split-large-files` (`lodash.min.js` seen whole, 6 chunks) | 3.5 | 0.0 | 1.0 / 0.7 | 0.5 / 0.85 | 0.5 / 0.8 |
 
 The rerun landed on the same 4.0 base as the 2026-08-07 report, through
 the same two non-zero original dimensions at the same scores and
@@ -92,6 +94,16 @@ produces on the `coa`/`rc` narrated placeholders
 (`malicious/coa-rc/FINDINGS.md`, third condition). The rerun also carries
 the corpus's first `timings` block: 18.8 s end to end, 17.8 s of it LLM
 time for three chunks.
+
+`--split-large-files` sent `lodash.min.js` whole instead of head-first —
+six chunks, nothing truncated — and changed nothing material: base 3.5
+(`dependency_changes` 1.0 → 0.5), still 0.0 / LOW, with the model's
+reasoning on the full bundle saying the minification is expected for that
+file and no further obfuscation is layered on. On this pair the truncated
+tail hid nothing, which is the expected result for a benign bundle and
+says nothing about a malicious one. Cost of finding that out: 42.1 s of
+LLM time against 17.8 s for the three-chunk run, since six chunks at
+concurrency 4 means two waves.
 
 ### esbuild@0.27.4 → 0.27.5 — first live validation of the Rekor identity feature
 
