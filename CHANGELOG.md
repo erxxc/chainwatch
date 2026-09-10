@@ -7,7 +7,7 @@ version-specific DOI is listed per release once Zenodo mints it.
 
 ## [0.2.0] — 2026-09-10
 
-Version DOI: added once minted.
+Version DOI: [10.5281/zenodo.21923286](https://doi.org/10.5281/zenodo.21923286)
 
 ### Added
 
