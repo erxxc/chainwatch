@@ -135,7 +135,7 @@
   },
   "llm_model": "claude-sonnet-4-6",
   "llm_summary": "This update to ua-parser-js 0.7.29 is a confirmed supply chain attack. Three malicious preinstall scripts are added that download and execute a cryptocurrency miner (XMRig connecting to pool.minexmr.com:443) on Windows and Linux systems. On Windows, a DLL (create.dll) is also registered via regsvr32. The attack includes a geo-exclusion check that skips infection for IP addresses resolving to Russia, Ukraine, Belarus, and Kazakhstan. This is a definitive, unambiguous malicious compromise of the package.",
-  "timestamp": "2026-08-10T15:15:45.845489Z",
+  "timestamp": "2026-08-10T00:00:00Z",
   "from_version_sha256": null,
   "to_version_sha256": null
 }

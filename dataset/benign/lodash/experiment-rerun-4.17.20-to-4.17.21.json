@@ -238,7 +238,7 @@
   },
   "llm_model": "claude-sonnet-4-6",
   "llm_summary": "This diff represents a legitimate security patch to lodash 4.17.21. The changes include: (1) a fix for a prototype pollution/command injection vulnerability in template.js by validating the 'variable' option against forbidden characters, (2) a refactoring of whitespace trimming logic into new internal helper files (_baseTrim.js and _trimmedEndIndex.js) to address a ReDoS vulnerability by replacing regex-based trimming with a character-by-character approach. All changes are consistent with the publicly documented CVE fixes in this release and show no indicators of malicious behaviour.",
-  "timestamp": "2026-09-09T17:44:46.105443Z",
+  "timestamp": "2026-09-09T00:00:00Z",
   "from_version_sha256": "d2aa8c6afc3c8591765785a37d1c5acae482a8eb3ab9729ed28922692454f2e2",
   "to_version_sha256": "6a087ac9e5702a0c9d60fbcd48696012646ec8df1491dea472b150e79fcaf804",
   "timings": {

@@ -119,7 +119,7 @@
   },
   "llm_model": "claude-sonnet-4-6",
   "llm_summary": "This diff matches the well-documented ua-parser-js supply chain attack (CVE-2021-41265). A malicious preinstall hook was added that executes platform-specific shell scripts (preinstall.bat on Windows, preinstall.sh on Linux) via child_process at install time. Although the shell script contents are not included in the diff, this exact pattern was confirmed to install a cryptocurrency miner and credential-stealing malware. The install hook addition and platform-conditional execution logic are definitive high-risk indicators. This package version should be considered compromised.",
-  "timestamp": "2026-08-10T15:14:43.441294Z",
+  "timestamp": "2026-08-10T00:00:00Z",
   "from_version_sha256": null,
   "to_version_sha256": null
 }

@@ -128,7 +128,7 @@
   },
   "llm_model": "claude-sonnet-4-6",
   "llm_summary": "This diff represents a confirmed supply chain attack on the `ctx` package. The `Ctx.__init__` method was modified to unconditionally call `sendRequest()`, which collects all environment variables, base64-encodes them, and exfiltrates them via an HTTP GET request to an external server ('anti-theft-web.herokuapp.com'). The author name was also changed from 'Robert Ledger' to 'Yunus AYDIN', indicating a package takeover or impersonation. This is a textbook credential/secret harvesting attack targeting anyone who instantiates the `Ctx` class.",
-  "timestamp": "2026-08-11T21:18:06.634958Z",
+  "timestamp": "2026-08-11T00:00:00Z",
   "from_version_sha256": null,
   "to_version_sha256": null
 }

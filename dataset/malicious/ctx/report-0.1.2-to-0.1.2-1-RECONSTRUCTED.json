@@ -131,7 +131,7 @@
   },
   "llm_model": "claude-sonnet-4-6",
   "llm_summary": "This diff is a confirmed credential-stealing supply chain attack. The `ctx` package version 0.1.2-1 introduces code in `ctx.py` that, upon every instantiation of the `Ctx` class, reads AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY from environment variables and exfiltrates them via an HTTP GET request to an external attacker-controlled server (anti-theft-web.herokuapp.com). The maintainer field was also changed, indicating a possible account takeover or malicious maintainer addition. The addition of `flask` as a dependency without any visible usage is suspicious and may serve as cover or future payload delivery.",
-  "timestamp": "2026-08-12T00:49:47.769599Z",
+  "timestamp": "2026-08-12T00:00:00Z",
   "from_version_sha256": null,
   "to_version_sha256": null
 }

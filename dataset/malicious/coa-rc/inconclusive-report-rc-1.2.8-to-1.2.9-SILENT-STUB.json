@@ -135,7 +135,7 @@
   },
   "llm_model": "claude-sonnet-4-6",
   "llm_summary": "This update to the 'rc' package (v1.2.8 → 1.2.9) is highly suspicious. It introduces a new preinstall hook, two new files (compile.bat and compile.js), and a native addon (binding.gyp or .node file) — none of which are consistent with the expected behaviour of a lightweight configuration-loading library. The 'rc' package has no legitimate reason to compile native code. The diff content for the new files is entirely absent (0 lines shown), meaning the actual payload cannot be inspected and the risk may be significantly higher than scored. A human reviewer should examine the full package contents before allowing this version to be installed.",
-  "timestamp": "2026-08-12T00:41:03.198438Z",
+  "timestamp": "2026-08-12T00:00:00Z",
   "from_version_sha256": null,
   "to_version_sha256": null
 }

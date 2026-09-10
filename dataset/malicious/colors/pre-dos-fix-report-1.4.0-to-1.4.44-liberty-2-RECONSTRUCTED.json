@@ -127,7 +127,7 @@
   },
   "llm_model": "claude-sonnet-4-6",
   "llm_summary": "This diff (colors 1.4.0 → 1.4.44-liberty-2) adds a novelty 'American flag' ASCII art module and introduces an infinite loop in lib/index.js that repeatedly calls console.log with the .zalgo text effect. While there are no network calls, credential exfiltration, or obfuscation patterns, the infinite loop ('for (let i = 666; i < Infinity; i++)') is a denial-of-service / resource exhaustion pattern that will hang any process that imports this package. This is consistent with the real-world incident where the colors package author intentionally sabotaged their own package. The change is disruptive and malicious in effect (infinite CPU/stdout consumption) even without classic supply chain exfiltration indicators.",
-  "timestamp": "2026-08-09T03:58:06.886108Z",
+  "timestamp": "2026-08-09T00:00:00Z",
   "from_version_sha256": null,
   "to_version_sha256": null
 }

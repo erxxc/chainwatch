@@ -135,7 +135,7 @@
   },
   "llm_model": "claude-sonnet-4-6",
   "llm_summary": "This diff corresponds to the well-documented November 2021 coa npm package hijack (2.0.2 → 2.0.3). A new 'preinstall' hook was added that executes compile.js, which in turn spawned compile.bat — an obfuscated Windows batch script that downloaded and executed the DanaBot password-stealing trojan from an external domain via curl/wget/certutil. The actual malicious code is not present in this specific diff (replaced with researcher placeholder comments), but the structural evidence — new preinstall hook, new compile.bat, new compile.js, native addon flag — matches the verified attack pattern with high confidence. This is a definitive supply chain compromise.",
-  "timestamp": "2026-08-12T00:02:34.172059Z",
+  "timestamp": "2026-08-12T00:00:00Z",
   "from_version_sha256": null,
   "to_version_sha256": null
 }

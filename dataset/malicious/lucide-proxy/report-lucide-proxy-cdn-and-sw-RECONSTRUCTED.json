@@ -133,7 +133,7 @@
   },
   "llm_model": "claude-sonnet-4-6",
   "llm_summary": "Version 2.0.0 of this package adds two new files with highly suspicious behaviour. cdn.js installs a persistent setInterval beacon that fires every 2 seconds to an external server (verify.titaniumnetwork.org) with a random callback path, constituting an unbounded network drain and potential tracking/exfiltration mechanism. sw.js registers a service worker that proxies web traffic through the Scramjet obfuscating proxy library and injects a JavaScript payload into every HTML response, intercepting window.open calls, anchor clicks, and form submissions to redirect or relay tab-opening actions through postMessage — a pattern consistent with adware or traffic-hijacking. The combination of a persistent network beacon, a service-worker-level HTML injector, and click/navigation interception in a package with no obvious legitimate use-case for these features represents a strong supply-chain risk signal.",
-  "timestamp": "2026-08-12T03:47:42.432164Z",
+  "timestamp": "2026-08-12T00:00:00Z",
   "from_version_sha256": null,
   "to_version_sha256": null
 }

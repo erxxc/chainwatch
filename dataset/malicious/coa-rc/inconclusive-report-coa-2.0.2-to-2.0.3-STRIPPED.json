@@ -154,7 +154,7 @@
   },
   "llm_model": "claude-sonnet-4-6",
   "llm_summary": "The 2.0.2 \u2192 2.0.3 update of the 'coa' npm package introduces two new files (compile.bat and compile.js) and a new preinstall hook, which are highly anomalous for a command-line option parsing library that has no legitimate need for compilation steps. The actual content of these new files is not shown in the diff, preventing full analysis, but the pattern \u2014 preinstall hook + new script files + native addon indicator \u2014 is a well-known vector for supply chain attacks (notably, the coa package was previously compromised in a similar manner in late 2021). This update should be treated as highly suspicious and the package should not be installed until the preinstall script contents are reviewed and verified.",
-  "timestamp": "2026-09-09T17:46:57.173185Z",
+  "timestamp": "2026-09-09T00:00:00Z",
   "from_version_sha256": "783d74d006231c224dce24c627122bb7fb0f04f9074c31b302a5b4246aa68707",
   "to_version_sha256": null,
   "timings": null

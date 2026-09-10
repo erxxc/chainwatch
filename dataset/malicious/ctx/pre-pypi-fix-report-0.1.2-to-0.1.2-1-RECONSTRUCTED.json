@@ -129,7 +129,7 @@
   },
   "llm_model": "claude-sonnet-4-6",
   "llm_summary": "This diff is a definitive supply chain attack. The author has been changed and a malicious `__init__` method has been added to the `Ctx` class that harvests AWS credentials (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY) and the machine hostname from environment variables, then exfiltrates them via an HTTP GET request to 'https://anti-theft-web.herokuapp.com/hacked/' on every class instantiation. The added `test_ctx.py` file serves as camouflage to make the change appear legitimate. This matches the well-documented 2022 `ctx` PyPI package compromise.",
-  "timestamp": "2026-08-11T21:17:52.433811Z",
+  "timestamp": "2026-08-11T00:00:00Z",
   "from_version_sha256": null,
   "to_version_sha256": null
 }

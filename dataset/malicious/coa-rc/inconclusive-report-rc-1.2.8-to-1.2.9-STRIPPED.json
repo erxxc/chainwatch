@@ -154,7 +154,7 @@
   },
   "llm_model": "claude-sonnet-4-6",
   "llm_summary": "The rc package version 1.2.9 introduces a highly suspicious preinstall hook alongside two new files (compile.bat and compile.js) and a native addon, none of which have any legitimate purpose in the well-known 'rc' configuration-loader package. The actual file contents are not visible in the diff, which severely limits analysis but is itself a red flag. The combination of a new preinstall script, native addon, and compilation scripts in a minor patch to a pure-JavaScript package with no prior build step represents a strong indicator of a malicious supply chain injection. This update should be treated as high-risk until the contents of compile.bat, compile.js, and the binding.gyp file can be fully audited.",
-  "timestamp": "2026-09-09T17:47:15.950829Z",
+  "timestamp": "2026-09-09T00:00:00Z",
   "from_version_sha256": "03a5fae485203eb424dd3e9b1c4cf9ce3d04c03b154cb4fb6604497815cae93b",
   "to_version_sha256": null,
   "timings": null

@@ -143,7 +143,7 @@
   },
   "llm_model": "claude-sonnet-4-6",
   "llm_summary": "This is a confirmed supply chain attack on ua-parser-js 0.7.29. The package adds a preinstall hook (preinstall.js) that detects the victim's OS and executes platform-specific scripts (preinstall.bat on Windows, preinstall.sh on Linux/macOS). These scripts download and execute a cryptominer ('jsextension') connecting to pool.minexmr.com and a suspicious DLL ('create.dll'/'sdd.dll') registered via regsvr32. The shell script performs geolocation-based evasion to skip execution in Russia, Ukraine, Belarus, and Kazakhstan. This is a textbook supply chain compromise combining install-hook abuse, remote payload download, cryptomining, and geofenced evasion.",
-  "timestamp": "2026-08-11T01:30:47.200441Z",
+  "timestamp": "2026-08-11T00:00:00Z",
   "from_version_sha256": null,
   "to_version_sha256": null
 }
