@@ -135,8 +135,7 @@
     },
     "llm_model": "claude-sonnet-4-6",
     "llm_summary": "This update introduces the 'peacenotwar' package as a dependency \u2014 a well-documented malicious package inserted by the node-ipc maintainer as geopolitical protest. The code, inlined directly into node-ipc.cjs, traverses the user's Desktop and OneDrive directories and writes a file ('WITH-LOVE-FROM-AMERICA.txt') to those locations without user consent. This constitutes unauthorized filesystem modification (a form of supply chain attack), executed unconditionally at module load time. The update should be considered malicious and any affected systems should be audited.",
-    "timestamp": "2026-08-11T01:24:05.043814Z",
+    "timestamp": "2026-08-11T00:00:00Z",
     "from_version_sha256": "3ae711f24ce5e31b696e4228452258954b1cbc0983fdb345b0755cd9e9366a2b",
     "to_version_sha256": "24388fb7f28c167afd426b17667a2563ec6f094a7e83f3aef84d48a73b11a37b"
 }
-

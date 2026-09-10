@@ -154,7 +154,7 @@
   },
   "llm_model": "claude-sonnet-4-6",
   "llm_summary": "The coa package version 2.0.3 adds two new files (compile.bat and compile.js) and introduces a preinstall hook \u2014 a significant anomaly for a pure-JavaScript CLI argument parsing library with no prior native compilation requirements. The addition of what appears to be a native addon build system (flagged via binding.gyp/.node detection) is entirely inconsistent with coa's legitimate functionality. The actual file contents are not visible in the diff, which limits confidence, but the pattern strongly resembles known supply chain attacks where a trusted npm package is hijacked to execute malicious code during installation. This update should be treated as highly suspicious and blocked from production environments pending manual code review.",
-  "timestamp": "2026-09-09T17:57:14.179590Z",
+  "timestamp": "2026-09-09T00:00:00Z",
   "from_version_sha256": "783d74d006231c224dce24c627122bb7fb0f04f9074c31b302a5b4246aa68707",
   "to_version_sha256": null,
   "timings": null

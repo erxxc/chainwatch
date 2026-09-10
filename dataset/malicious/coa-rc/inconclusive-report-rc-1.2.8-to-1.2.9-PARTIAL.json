@@ -135,7 +135,7 @@
   },
   "llm_model": "claude-sonnet-4-6",
   "llm_summary": "This diff corresponds to the well-documented November 2021 npm supply chain hijack of the 'rc' package. A new preinstall hook was added that executes compile.js and compile.bat on package installation. Per the placeholder documentation (consistent with multiple independent vendor writeups), the real files contained obfuscated code that downloaded and executed the DanaBot password-stealing trojan from an external host via curl/wget/certutil and regsvr32/rundll32. The actual malicious payload code is not present in this diff — only placeholder files with descriptions — but the confirmed preinstall hook addition alone is a definitive supply chain attack indicator. This package version should be treated as malicious.",
-  "timestamp": "2026-08-12T00:02:50.209027Z",
+  "timestamp": "2026-08-12T00:00:00Z",
   "from_version_sha256": null,
   "to_version_sha256": null
 }

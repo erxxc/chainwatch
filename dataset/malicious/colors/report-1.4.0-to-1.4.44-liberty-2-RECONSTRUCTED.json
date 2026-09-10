@@ -141,7 +141,7 @@
   },
   "llm_model": "claude-sonnet-4-6",
   "llm_summary": "This update to the 'colors' package introduces a definitive resource exhaustion attack via an unconditional infinite loop (for i = 666; i < Infinity) injected directly into lib/index.js, which executes on every require() of the package. The loop calls console.log with a .zalgo string transform on every iteration and has no break condition or exit path, causing any dependent application to hang indefinitely. A secondary file lib/custom/american.js is added containing a patriotic ASCII art print function, which appears to be a political/protest payload consistent with the known intentional sabotage of this package by its maintainer. While there are no network exfiltration, obfuscation, or credential-theft patterns, the infinite loop alone makes this version definitively malicious from a supply chain security perspective.",
-  "timestamp": "2026-08-11T01:21:12.234455Z",
+  "timestamp": "2026-08-11T00:00:00Z",
   "from_version_sha256": null,
   "to_version_sha256": null
 }

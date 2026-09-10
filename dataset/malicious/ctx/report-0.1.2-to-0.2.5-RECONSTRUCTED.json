@@ -131,7 +131,7 @@
   },
   "llm_model": "claude-sonnet-4-6",
   "llm_summary": "This update to the `ctx` package (0.1.2 → 0.2.5) is a confirmed supply chain attack. The maintainer field was changed, and the new code unconditionally collects all environment variables on every `Ctx()` instantiation, base64-encodes them, and exfiltrates them via an HTTP GET request to 'https://anti-theft-web.herokuapp.com/hacked/'. This is a textbook credential-harvesting malware injection targeting any environment (CI/CD, development, production) that imports and uses the `ctx` package. The package should be immediately removed and any secrets present in affected environments should be rotated.",
-  "timestamp": "2026-08-12T00:50:02.633371Z",
+  "timestamp": "2026-08-12T00:00:00Z",
   "from_version_sha256": null,
   "to_version_sha256": null
 }

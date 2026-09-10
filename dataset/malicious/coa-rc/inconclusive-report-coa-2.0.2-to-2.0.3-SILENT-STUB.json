@@ -135,7 +135,7 @@
   },
   "llm_model": "claude-sonnet-4-6",
   "llm_summary": "This diff shows a highly suspicious update to the 'coa' package (v2.0.2 → v2.0.3) that adds a new preinstall hook along with two new files (compile.js and compile.bat). The 'coa' package is a simple CLI options parser with no legitimate need for native compilation or a preinstall script. Critically, the actual content of compile.js and compile.bat is not visible in the diff (shown as 0 lines), preventing full analysis. This pattern — a preinstall hook added alongside opaque script files in a widely-used utility package — matches the profile of the known 'coa' supply chain attack from November 2021, where malicious versions ran credential-stealing payloads via install hooks. The install_hooks dimension is rated high-risk; all other dimensions are scored conservatively due to truncated content.",
-  "timestamp": "2026-08-12T00:40:49.656878Z",
+  "timestamp": "2026-08-12T00:00:00Z",
   "from_version_sha256": null,
   "to_version_sha256": null
 }
