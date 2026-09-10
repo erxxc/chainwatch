@@ -226,4 +226,4 @@ def _get_version() -> str:
         from importlib.metadata import version
         return version("chainwatch")
     except Exception:
-        return "0.1.0"
+        return "0.2.0"

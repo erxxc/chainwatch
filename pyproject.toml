@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "chainwatch"
-version = "0.1.0"
+version = "0.2.0"
 description = "LLM-assisted supply chain diff analyzer for detecting malicious package updates"
 readme = "README.md"
 license = { text = "MIT" }
