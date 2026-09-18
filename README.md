@@ -213,7 +213,7 @@ This tool is the empirical foundation for a security research publication examin
 If you use this software or its accompanying ground-truth corpus, please cite it — see `CITATION.cff` for the machine-readable record (GitHub renders this automatically via the "Cite this repository" button).
 
 - **Concept DOI** (always resolves to the latest version): [10.5281/zenodo.21908505](https://doi.org/10.5281/zenodo.21908505)
-- **v0.2.0 DOI**: minted by Zenodo when the v0.2.0 release is published; added here and in `CITATION.cff` in a follow-up.
+- **v0.2.0 DOI** (this exact release, for reproducibility): [10.5281/zenodo.21923286](https://doi.org/10.5281/zenodo.21923286)
 - **v0.1.0 DOI** (previous release, for reproducibility of its numbers): [10.5281/zenodo.21908506](https://doi.org/10.5281/zenodo.21908506)
 
 Release history and what changed between versions: [`CHANGELOG.md`](CHANGELOG.md).

@@ -17,8 +17,11 @@ authors:
   - name: erxxc
 identifiers:
   - type: doi
+    value: 10.5281/zenodo.21923286
+    description: "The version-specific DOI for v0.2.0, as archived on Zenodo."
+  - type: doi
     value: 10.5281/zenodo.21908506
-    description: "The version-specific DOI for v0.1.0 (the previous release), as archived on Zenodo. The v0.2.0 DOI is added here once Zenodo mints it."
+    description: "The version-specific DOI for v0.1.0 (the previous release), as archived on Zenodo."
   - type: doi
     value: 10.5281/zenodo.21908505
     description: "The concept DOI, which always resolves to the latest version."
