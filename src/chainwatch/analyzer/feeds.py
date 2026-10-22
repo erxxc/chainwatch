@@ -593,7 +593,7 @@ async def _resolve_github_repo(
         if ecosystem == Ecosystem.npm:
             resp = await _get_with_retry(
                 client,
-                f"{settings.npm_registry}/{package}",
+                f"{settings.npm_registry}/{quote(package, safe='@')}",
             )
             data = resp.json()
             repo = data.get("repository", {})
@@ -608,7 +608,7 @@ async def _resolve_github_repo(
             # PyPI — use the latest version's metadata
             resp = await _get_with_retry(
                 client,
-                f"{settings.pypi_registry}/{package}/json",
+                f"{settings.pypi_registry}/{quote(package, safe='')}/json",
             )
             data = resp.json()
             info = data.get("info", {})

@@ -637,3 +637,59 @@ class TestChunkerSplitLargeFiles:
         assert diff.large_files_split is True
         assert diff.split_files == []
         assert "(part " not in chunks[0]
+
+
+# ── Chunker: per-analysis chunk cap ──────────────────────────────────────────
+
+
+def _many_small_changes(tmp_path: Path, count: int = 30) -> tuple[Path, Path, list[str]]:
+    a = tmp_path / "a"
+    b = tmp_path / "b"
+    a.mkdir()
+    b.mkdir()
+    names = [f"lib/f{i:02d}.js" for i in range(count)]
+    for i, name in enumerate(names):
+        (a / name).parent.mkdir(parents=True, exist_ok=True)
+        (b / name).parent.mkdir(parents=True, exist_ok=True)
+        (a / name).write_text(f"var a{i} = 1;\n")
+        (b / name).write_text(f"var a{i} = 2;\n")
+    return a, b, names
+
+
+class TestChunkerChunkCap:
+    def test_cap_drops_remaining_files_and_names_them(self, tmp_path: Path):
+        a, b, names = _many_small_changes(tmp_path)
+        diff = compute_diff(a, b)
+        chunks = chunk_diff(diff, max_tokens_per_chunk=100, max_chunks=3)
+
+        assert len(chunks) == 3
+        assert diff.chunks_sent_to_llm == 3
+        joined = "\n".join(chunks)
+        sent = {n for n in names if f"## MODIFIED: {n}" in joined}
+        not_sent = set(diff.files_not_analyzed)
+        assert sent, "the first chunks must still carry some files"
+        assert not_sent, "a 30-file diff at a 100-token budget must overflow 3 chunks"
+        assert sent.isdisjoint(not_sent)
+        assert sent | not_sent == set(names)
+        # Nothing past the cap leaks into the prompt text.
+        assert all(f"## MODIFIED: {n}" not in joined for n in not_sent)
+
+    def test_cap_of_one_sends_exactly_one_chunk(self, tmp_path: Path):
+        a, b, names = _many_small_changes(tmp_path)
+        diff = compute_diff(a, b)
+        chunks = chunk_diff(diff, max_tokens_per_chunk=100, max_chunks=1)
+        assert len(chunks) == 1
+        assert diff.files_not_analyzed
+        assert len(diff.files_not_analyzed) < len(names)
+
+    def test_no_cap_hit_leaves_list_empty(self, simple_change):
+        a, b = simple_change
+        diff = compute_diff(a, b)
+        chunk_diff(diff, max_tokens_per_chunk=8_000, max_chunks=40)
+        assert diff.files_not_analyzed == []
+
+    def test_default_cap_matches_settings_default(self):
+        from chainwatch.config import Settings
+        from chainwatch.diff.chunker import DEFAULT_MAX_CHUNKS_PER_ANALYSIS
+        default = Settings.model_fields["max_chunks_per_analysis"].default
+        assert default == DEFAULT_MAX_CHUNKS_PER_ANALYSIS

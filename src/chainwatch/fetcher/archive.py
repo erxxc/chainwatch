@@ -111,15 +111,15 @@ def _validate_download_url(
     """
     parsed = urlsplit(url)
     if parsed.scheme != "https":
-        raise ValueError(f"{label} archive URL must use https: {url}")
+        raise ValueError(f"{label} URL must use https: {url}")
     if parsed.username or parsed.password:
-        raise ValueError(f"{label} archive URL must not contain credentials")
+        raise ValueError(f"{label} URL must not contain credentials")
     if not parsed.hostname:
-        raise ValueError(f"{label} archive URL is missing a host")
+        raise ValueError(f"{label} URL is missing a host")
 
     host = parsed.hostname.rstrip(".").lower()
     if host == "localhost" or host.endswith(".localhost"):
-        raise ValueError(f"{label} archive URL must not target localhost")
+        raise ValueError(f"{label} URL must not target localhost")
 
     try:
         ip = ipaddress.ip_address(host)
@@ -127,17 +127,33 @@ def _validate_download_url(
         pass
     else:
         if not ip.is_global:
-            raise ValueError(f"{label} archive URL must not target a non-public IP")
+            raise ValueError(f"{label} URL must not target a non-public IP")
 
     normalized_allowed_hosts = (
         None if allowed_hosts is None else frozenset(h.rstrip(".").lower() for h in allowed_hosts)
     )
     if normalized_allowed_hosts is not None and host not in normalized_allowed_hosts:
         raise ValueError(
-            f"{label} archive URL host {host!r} is not in the allow-list "
+            f"{label} URL host {host!r} is not in the allow-list "
             f"{sorted(normalized_allowed_hosts)}"
         )
     return url
+
+
+def validate_outbound_url(url: str, *, label: str) -> str:
+    """
+    The generic outbound-URL rules (https only, no credentials, no localhost,
+    no non-public IP) without an allow-list.
+
+    Public so the shared ``httpx.AsyncClient`` built in ``chainwatch.pipeline``
+    can apply them to *every* request it sends — registry metadata, OSV,
+    Rekor, Scorecard — and to every redirect hop, via a request event hook.
+    The tarball downloader above already enforced these; before the hook, the
+    other call sites followed redirects unchecked, so a compromised registry
+    mirror or feed could have steered a request at localhost or a cloud
+    metadata address.
+    """
+    return _validate_download_url(url, label=label)
 
 
 def host_from_url(url: str) -> str:

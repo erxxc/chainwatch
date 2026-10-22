@@ -155,6 +155,19 @@ class Settings(BaseSettings):
         ),
     )
 
+    max_chunks_per_analysis: int = Field(
+        default=40,
+        ge=1,
+        le=1000,
+        description=(
+            "Most LLM calls a single package diff may make. Each chunk is one "
+            "call, and without a cap the count is set by how many source files "
+            "a release touches — a hostile update can touch thousands while "
+            "staying under every byte limit above. Past the cap, remaining files "
+            "are listed in diff_summary.files_not_analyzed and never sent."
+        ),
+    )
+
     allowed_archive_hosts: str | None = Field(
         default=None,
         description=(

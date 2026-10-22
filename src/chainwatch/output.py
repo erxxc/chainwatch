@@ -14,6 +14,12 @@ Design notes:
   terminal output is visually consistent with any future web frontend.
 - Rich Console is created here as a module-level singleton so tests can capture
   it by replacing ``_console``.
+- Anything that originates outside this process — the LLM's reasoning and
+  summary (which quote attacker-controlled diff text verbatim), feed details,
+  package names, file paths, hook names, scan errors — is rendered through
+  ``rich.text.Text`` or ``rich.markup.escape`` so Rich never parses it as
+  markup. A hostile package could otherwise plant ``[link=...]`` or styled
+  "all clear" banners inside what looks like the tool's own framing.
 """
 
 from __future__ import annotations
@@ -26,6 +32,7 @@ from typing import TextIO
 
 from rich import box
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -166,20 +173,20 @@ def _emit_scan_rich(entries: list[ScanEntry], *, output_file: Path | None) -> No
                 flagged += 1
             note = report.llm_summary.splitlines()[0][:80] if report.llm_summary else ""
             table.add_row(
-                entry.package,
-                version_range,
+                Text(entry.package),
+                Text(version_range),
                 Text(f"{report.risk_score:.1f}", style=sev_style),
                 Text(report.severity.value, style=sev_style),
-                note,
+                Text(note),
             )
         else:
             errored += 1
             table.add_row(
-                entry.package,
-                version_range,
+                Text(entry.package),
+                Text(version_range),
                 "—",
                 Text("ERROR", style="dim red"),
-                entry.error or "unknown error",
+                Text(entry.error or "unknown error"),
             )
 
     console.print("[bold dim]CHAINWATCH SCAN[/bold dim]")
@@ -281,7 +288,7 @@ def _emit_rich(report: RiskReport, *, output_file: Path | None) -> None:
             conf,
             f"{dim.weight * 100:.0f}%",
             f"{dim.weighted_contribution:.1f}",
-            dim.reasoning,
+            Text(dim.reasoning),
         )
 
     console.print("[bold dim]RISK DIMENSIONS[/bold dim]")
@@ -304,10 +311,10 @@ def _emit_rich(report: RiskReport, *, output_file: Path | None) -> None:
         status_style = _FEED_STATUS_STYLE[feed.status]
         icon = _FEED_STATUS_ICON[feed.status]
         feed_table.add_row(
-            feed.source.upper(),
+            Text(feed.source.upper()),
             Text(f"{icon}  {feed.status.value}", style=status_style),
-            feed.details,
-            feed.url or "—",
+            Text(feed.details),
+            Text(feed.url or "—"),
         )
 
     console.print("[bold dim]THREAT FEED RESULTS[/bold dim]")
@@ -318,7 +325,7 @@ def _emit_rich(report: RiskReport, *, output_file: Path | None) -> None:
     console.print("[bold dim]LLM ASSESSMENT[/bold dim]")
     console.print(
         Panel(
-            report.llm_summary,
+            Text(report.llm_summary),
             border_style="dim",
             padding=(0, 1),
         )
@@ -353,7 +360,8 @@ def _emit_rich(report: RiskReport, *, output_file: Path | None) -> None:
     if ds.new_dependencies:
         diff_parts.append(f"[cyan]+{len(ds.new_dependencies)} new deps[/cyan]")
     if ds.new_install_hooks:
-        diff_parts.append(f"[red]install hooks: {', '.join(ds.new_install_hooks)}[/red]")
+        hooks = escape(", ".join(ds.new_install_hooks))
+        diff_parts.append(f"[red]install hooks: {hooks}[/red]")
     if ds.truncated_files:
         diff_parts.append(
             f"[dim]({len(ds.truncated_files)} file(s) truncated — token budget)[/dim]"
@@ -364,6 +372,10 @@ def _emit_rich(report: RiskReport, *, output_file: Path | None) -> None:
         diff_parts.append(f"[dim]({len(ds.skipped_files)} file(s) skipped — too large)[/dim]")
     if ds.split_files:
         diff_parts.append(f"[dim]({len(ds.split_files)} file(s) split across chunks)[/dim]")
+    if ds.files_not_analyzed:
+        diff_parts.append(
+            f"[dim]({len(ds.files_not_analyzed)} file(s) not analysed — chunk cap)[/dim]"
+        )
     if ds.comments_stripped:
         diff_parts.append(f"[dim](comments stripped: {ds.comment_lines_stripped} lines)[/dim]")
 
@@ -374,7 +386,7 @@ def _emit_rich(report: RiskReport, *, output_file: Path | None) -> None:
     if report.caveats:
         console.print("[bold dim]CAVEATS[/bold dim]")
         for caveat in report.caveats:
-            console.print(f"  [yellow]⚠[/yellow]  [dim]{caveat}[/dim]")
+            console.print(f"  [yellow]⚠[/yellow]  [dim]{escape(caveat)}[/dim]")
         console.print()
 
     # ── 8. Provenance ─────────────────────────────────────────────────────────

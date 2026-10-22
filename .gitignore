@@ -22,8 +22,9 @@ wheelhouse/
 # gitignore has no trailing-comment syntax, so a line like
 # 'uv.lock  # committed' silently matches nothing.
 
-# Environment / secrets — NEVER commit .env
+# Environment / secrets — NEVER commit .env (or a direnv .envrc that sources it)
 .env
+.envrc
 
 # Test / coverage
 .pytest_cache/

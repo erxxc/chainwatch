@@ -197,6 +197,16 @@ def _build_caveats(diff_summary: DiffSummary) -> list[str]:
             "these files whole, so a pattern spanning two parts can be missed."
         )
 
+    if diff_summary.files_not_analyzed:
+        caveats.append(
+            f"The analysis hit the per-analysis chunk cap "
+            f"(CHAINWATCH_MAX_CHUNKS_PER_ANALYSIS) after "
+            f"{diff_summary.chunks_sent_to_llm} chunk(s); "
+            f"{len(diff_summary.files_not_analyzed)} file(s) were never sent to the LLM: "
+            f"{_file_list(diff_summary.files_not_analyzed)}. Nothing in them "
+            "contributed to the LLM score."
+        )
+
     if diff_summary.chunks_sent_to_llm > 1:
         caveats.append(
             f"The diff was split into {diff_summary.chunks_sent_to_llm} chunks scored "

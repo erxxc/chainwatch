@@ -27,7 +27,10 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 #   DiffSummary (truncated_files, skipped_files, large_files_split,
 #   split_files, comments_stripped, comment_lines_stripped). All additive
 #   with defaults — 0.2.0 and 0.1.0 reports still validate against this schema.
-SCHEMA_VERSION = "0.3.0"
+# 0.4.0 (2026-10-22): DiffSummary.files_not_analyzed, recording files dropped
+#   by the per-analysis chunk cap (CHAINWATCH_MAX_CHUNKS_PER_ANALYSIS, a
+#   spend and denial-of-service bound). Additive; every earlier report validates.
+SCHEMA_VERSION = "0.4.0"
 
 
 # ── Enumerations ──────────────────────────────────────────────────────────────
@@ -308,6 +311,15 @@ class DiffSummary(BaseModel):
             "Files whose diff was split into parts across chunks "
             "(--split-large-files). Nothing omitted unless the file also appears "
             "in truncated_files, which means the per-file part cap was hit"
+        ),
+    )
+    files_not_analyzed: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Files whose diff was never sent to the LLM because the analysis hit "
+            "the per-analysis chunk cap (CHAINWATCH_MAX_CHUNKS_PER_ANALYSIS). A "
+            "spend and denial-of-service bound: without it, a release touching "
+            "thousands of small files would cost thousands of LLM calls"
         ),
     )
     comments_stripped: bool = Field(
