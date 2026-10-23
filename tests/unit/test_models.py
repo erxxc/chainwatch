@@ -205,7 +205,7 @@ class TestRiskReport:
 
     def test_schema_version_present(self):
         report = _make_report()
-        assert report.schema_version == "0.3.0"
+        assert report.schema_version == "0.4.0"
 
     def test_llm_base_score_and_modifiers_default(self):
         # A directly-constructed report carries the new fields with defaults.
@@ -253,6 +253,7 @@ class TestRiskReport:
         assert ds.skipped_files == []
         assert ds.large_files_split is False
         assert ds.split_files == []
+        assert ds.files_not_analyzed == []
         assert ds.comments_stripped is False
         assert ds.comment_lines_stripped == 0
 
@@ -460,6 +461,16 @@ class TestAggregator:
         [caveat] = _build_caveats(ds)
         assert "head-first" in caveat
         assert "part cap" not in caveat
+
+    def test_chunk_cap_caveat_names_the_files_never_sent(self):
+        from chainwatch.analyzer.aggregator import _build_caveats
+        ds = DiffSummary(chunks_sent_to_llm=40, files_not_analyzed=["lib/x.js", "lib/y.js"])
+        caveats = _build_caveats(ds)
+        cap = [c for c in caveats if "chunk cap" in c]
+        assert len(cap) == 1
+        assert "40 chunk(s)" in cap[0]
+        assert "lib/x.js" in cap[0] and "lib/y.js" in cap[0]
+        assert "never sent to the LLM" in cap[0]
 
     def test_caveat_file_list_is_capped(self):
         from chainwatch.analyzer.aggregator import _build_caveats

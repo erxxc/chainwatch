@@ -25,6 +25,7 @@ from typing import TypeVar
 import httpx
 
 from chainwatch.config import get_settings
+from chainwatch.fetcher.archive import validate_outbound_url
 from chainwatch.models import Ecosystem, PipelineTimings, RiskReport
 
 log = logging.getLogger(__name__)
@@ -39,19 +40,40 @@ async def _timed(awaitable: Awaitable[T]) -> tuple[T, float]:
     return result, time.perf_counter() - started
 
 
-def build_http_client() -> httpx.AsyncClient:
+async def _refuse_unsafe_request(request: httpx.Request) -> None:
+    """
+    Request event hook: every outbound request — including each hop httpx
+    follows for a redirect — must pass the same rules the tarball downloader
+    applies (https only, no credentials, no localhost, no non-public IP).
+
+    Without this, ``follow_redirects=True`` meant a 3xx from a compromised
+    registry mirror or feed endpoint could point the metadata, OSV, Rekor,
+    or Scorecard request at an internal address and httpx would follow it.
+    Raising here aborts that request; feed clients already degrade a failed
+    lookup to ``no_data``.
+    """
+    validate_outbound_url(str(request.url), label="outbound request")
+
+
+def build_http_client(
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> httpx.AsyncClient:
     """
     Build the shared ``httpx.AsyncClient`` used for all registry/feed/tarball
     requests in a pipeline run (or a whole `scan` batch of them).
 
     Centralised so `diff` and `scan` construct it identically — same timeout,
-    same redirect policy, same User-Agent — without duplicating the call.
+    same redirect policy, same User-Agent, same outbound-URL guard — without
+    duplicating the call. ``transport`` exists so tests can plug in a
+    ``MockTransport`` and still exercise the guard.
     """
     settings = get_settings()
     return httpx.AsyncClient(
         timeout=httpx.Timeout(settings.http_timeout),
         follow_redirects=True,
         headers={"User-Agent": f"chainwatch/{_get_version()} (research tool)"},
+        event_hooks={"request": [_refuse_unsafe_request]},
+        transport=transport,
     )
 
 
@@ -141,6 +163,7 @@ async def run_diff_pipeline(
             settings.max_tokens_per_chunk,
             split_large_files=split_large_files,
             max_parts_per_file=settings.max_split_parts_per_file,
+            max_chunks=settings.max_chunks_per_analysis,
         )
         diff_seconds = time.perf_counter() - diff_started
 

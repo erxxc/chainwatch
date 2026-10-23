@@ -1,0 +1,19 @@
+# Dependabot version updates. Alerts and security updates are a separate,
+# repository-level setting (Settings -> Code security) that this file does
+# not control; this file only asks for routine update PRs.
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      python-dependencies:
+        patterns: ["*"]
+    labels: ["dependencies"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels: ["dependencies"]

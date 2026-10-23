@@ -15,7 +15,7 @@ import pytest
 
 from chainwatch.config import get_settings
 from chainwatch.models import Ecosystem, RiskReport
-from chainwatch.pipeline import run_diff_pipeline
+from chainwatch.pipeline import build_http_client, run_diff_pipeline
 from tests.fixtures.npm_registry import MockNpmRegistry, NpmFixtureVersion, package_json
 
 
@@ -165,3 +165,57 @@ class TestSplitLargeFiles:
         text = "\n".join(report.caveats)
         assert "split into parts" in text
         assert "part cap" in text
+
+
+class TestOutboundUrlGuard:
+    """The shared client must refuse unsafe targets on every hop, redirects included."""
+
+    @staticmethod
+    def _transport() -> httpx.MockTransport:
+        def handler(request: httpx.Request) -> httpx.Response:
+            path = request.url.path
+            if path == "/to-metadata":
+                return httpx.Response(
+                    302, headers={"location": "https://169.254.169.254/latest/meta-data/"}
+                )
+            if path == "/to-localhost":
+                return httpx.Response(302, headers={"location": "https://localhost/admin"})
+            if path == "/to-http":
+                return httpx.Response(302, headers={"location": "http://registry.test/ok"})
+            if path == "/to-ok":
+                return httpx.Response(302, headers={"location": "https://registry.test/ok"})
+            if path == "/ok":
+                return httpx.Response(200, json={"ok": True})
+            return httpx.Response(404)
+        return httpx.MockTransport(handler)
+
+    @pytest.mark.asyncio
+    async def test_redirect_to_cloud_metadata_ip_is_refused(self):
+        async with build_http_client(transport=self._transport()) as client:
+            with pytest.raises(ValueError, match="non-public IP"):
+                await client.get("https://registry.test/to-metadata")
+
+    @pytest.mark.asyncio
+    async def test_redirect_to_localhost_is_refused(self):
+        async with build_http_client(transport=self._transport()) as client:
+            with pytest.raises(ValueError, match="localhost"):
+                await client.get("https://registry.test/to-localhost")
+
+    @pytest.mark.asyncio
+    async def test_redirect_downgrade_to_http_is_refused(self):
+        async with build_http_client(transport=self._transport()) as client:
+            with pytest.raises(ValueError, match="must use https"):
+                await client.get("https://registry.test/to-http")
+
+    @pytest.mark.asyncio
+    async def test_direct_http_request_is_refused(self):
+        async with build_http_client(transport=self._transport()) as client:
+            with pytest.raises(ValueError, match="must use https"):
+                await client.get("http://registry.test/ok")
+
+    @pytest.mark.asyncio
+    async def test_redirect_to_public_https_host_is_followed(self):
+        async with build_http_client(transport=self._transport()) as client:
+            resp = await client.get("https://registry.test/to-ok")
+        assert resp.status_code == 200
+        assert len(resp.history) == 1

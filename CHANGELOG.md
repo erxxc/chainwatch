@@ -5,6 +5,41 @@ archived on Zenodo under the concept DOI
 [10.5281/zenodo.21908505](https://doi.org/10.5281/zenodo.21908505); the
 version-specific DOI is listed per release once Zenodo mints it.
 
+## [Unreleased]
+
+### Security
+
+- **Per-analysis chunk cap.** Each diff chunk is one LLM call, and the count
+  was bounded only by file size, never by file count: a hostile release
+  touching thousands of small source files could force thousands of billed
+  calls from one `chainwatch diff` while staying under every byte limit. New
+  `CHAINWATCH_MAX_CHUNKS_PER_ANALYSIS` setting (default 40); files past the
+  cap are recorded in `diff_summary.files_not_analyzed` (schema 0.4.0) and
+  named in a caveat. Found by the 2026-10-22 security review.
+- **Outbound URL guard on the shared HTTP client.** The tarball downloader
+  already refused cleartext, credentialled, localhost, and non-public-IP
+  URLs on every redirect hop; the client used for registry metadata, OSV,
+  Rekor, and Scorecard followed redirects unchecked. The same rules now run
+  as a request hook on every request and hop.
+- **Rich markup injection in the human-readable report.** LLM reasoning and
+  summary text, feed details, package names, install-hook names, file paths
+  in caveats, and scan errors are now rendered as literal text. A hostile
+  package comment quoted by the model could previously plant a real
+  terminal hyperlink or styled banner inside the tool's own framing.
+- certifi 2026.7.22 → 2026.10.19 in `uv.lock` (compromised eMudhra
+  intermediates, PYSEC-2026-4320).
+
+### Changed
+
+- CI actions pinned to commit SHAs, `GITHUB_TOKEN` read-only, Python 3.13
+  and 3.14 added to the matrix; Dependabot configured for pip and
+  GitHub Actions; `SECURITY.md` added.
+- Scoped package names are now URL-encoded when resolving a GitHub
+  repository for the Scorecard feed (previously a silent `no_data`).
+- `.envrc` is gitignored alongside `.env`.
+- Lockfile refreshed to current releases, including the Anthropic SDK 2.x
+  line (verified against the full test suite).
+
 ## [0.2.0] — 2026-09-10
 
 Version DOI: [10.5281/zenodo.21923286](https://doi.org/10.5281/zenodo.21923286)

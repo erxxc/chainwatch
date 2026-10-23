@@ -51,6 +51,13 @@ CHARS_PER_TOKEN: int = 4
 # the default 8k-token budget would otherwise be ~64 LLM calls on its own).
 DEFAULT_MAX_PARTS_PER_FILE: int = 16
 
+# Hard ceiling on chunks (= LLM calls) per analysis. In default mode each
+# changed source file costs at least one block and small files pack several
+# to a chunk, but nothing stops a hostile release from touching thousands of
+# files while staying under every byte limit — so the call count has to be
+# bounded here, not only by file size. Mirrors settings.max_chunks_per_analysis.
+DEFAULT_MAX_CHUNKS_PER_ANALYSIS: int = 40
+
 # Split mode: room left in each part for the "(continued)" marker, the
 # part header, and the code fences, so a part plus the preamble still fits
 # in one chunk. Sized generously; the exact overhead is a few dozen chars.
@@ -64,6 +71,7 @@ def chunk_diff(
     *,
     split_large_files: bool = False,
     max_parts_per_file: int = DEFAULT_MAX_PARTS_PER_FILE,
+    max_chunks: int = DEFAULT_MAX_CHUNKS_PER_ANALYSIS,
 ) -> list[str]:
     """
     Convert a DiffSummary into a list of text chunks, each within the token budget.
@@ -80,6 +88,9 @@ def chunk_diff(
                               chunks instead of truncating it head-first.
         max_parts_per_file:   Split mode only — parts per file before the
                               remainder is truncated (bounds LLM spend).
+        max_chunks:           Most chunks to produce for this analysis. Files
+                              that would need further chunks are recorded in
+                              ``diff.files_not_analyzed`` and never sent.
 
     Returns:
         List of text strings, one per chunk.  Typically just one item for
@@ -92,6 +103,7 @@ def chunk_diff(
         Sets ``diff.chunks_sent_to_llm`` to the number of chunks produced.
         In split mode, sets ``diff.large_files_split = True`` and
         ``diff.split_files`` to the paths that were split into parts.
+        Sets ``diff.files_not_analyzed`` when the chunk cap dropped files.
     """
     budget_chars = max_tokens_per_chunk * CHARS_PER_TOKEN
 
@@ -99,7 +111,7 @@ def chunk_diff(
     preamble = _build_metadata_preamble(diff)
 
     # ── Build per-file diff blocks ────────────────────────────────────────────
-    file_blocks: list[str] = []
+    file_blocks: list[tuple[str, str]] = []  # (path, block text)
     truncated = False
     truncated_files: list[str] = []
     split_files: list[str] = []
@@ -111,7 +123,7 @@ def chunk_diff(
             parts, part_truncated = _split_file_diff(
                 file_diff, piece_chars=piece_chars, max_parts=max_parts_per_file,
             )
-            file_blocks.extend(parts)
+            file_blocks.extend((file_diff.path, part) for part in parts)
             split_files.append(file_diff.path)
             if part_truncated:
                 truncated = True
@@ -142,30 +154,42 @@ def chunk_diff(
                 "File %s diff truncated from %d to ~%d chars",
                 file_diff.path, original_len, max_chars,
             )
-        file_blocks.append(block)
+        file_blocks.append((file_diff.path, block))
 
     # ── Assemble chunks ───────────────────────────────────────────────────────
     chunks: list[str] = []
     current_chunk = preamble
     current_size = len(preamble)
+    files_not_analyzed: list[str] = []
+    max_chunks = max(1, max_chunks)
 
-    for block in file_blocks:
+    for index, (_path, block) in enumerate(file_blocks):
         if current_size + len(block) > budget_chars and current_size > len(preamble):
             # Current chunk is full — start a new one (still include preamble for context)
             chunks.append(current_chunk)
+            if len(chunks) >= max_chunks:
+                # Chunk cap reached: every remaining block is dropped, and the
+                # files it belonged to are named so the report can say so.
+                files_not_analyzed = list(dict.fromkeys(p for p, _ in file_blocks[index:]))
+                log.warning(
+                    "Chunk cap %d reached — %d file(s) not sent to the LLM",
+                    max_chunks, len(files_not_analyzed),
+                )
+                break
             current_chunk = preamble + "\n# (continued)\n" + block
             current_size = len(current_chunk)
         else:
             current_chunk += "\n" + block
             current_size += len(block)
-
-    chunks.append(current_chunk)
+    else:
+        chunks.append(current_chunk)
 
     # ── Update diff summary with chunking metadata ─────────────────────────────
     diff.diff_truncated = truncated
     diff.truncated_files = truncated_files
     diff.large_files_split = split_large_files
     diff.split_files = split_files
+    diff.files_not_analyzed = files_not_analyzed
     diff.chunks_sent_to_llm = len(chunks)
 
     log.info(
